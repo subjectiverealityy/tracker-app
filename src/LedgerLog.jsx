@@ -26,16 +26,16 @@ const TIPS = {
     'Add items in single units (you will be asked to add their quantities later).',
     'A big circle will appear after you add your first item. Tap it to add the item’s quantity and price.',
     'Tip: Double-tap an item to delete it.',
-    'Tap your ledger’s name to switch ledgers or add a new one - you can edit its name or delete it in Settings (top-left).',
+    'Switch between ledgers or create a new ledger here. Rename or delete ledgers in Settings.',
   ],
   quantity: [<>Tip: Use ‘00’ or ‘000’ on the<br />right-hand side of the keypad for faster entry.</>],
-  price: ['You can choose a different currency here or change the default currency.'],
+  price: ['Enter the total price (not the unit price).', 'You can choose a different currency here or change the default currency.'],
   ledger: ['You can search past entries here and compare per-unit prices.', 'Tip: Double-tap an entry to cancel it.'],
   totals: ['Here, you can see daily, monthly and yearly totals of your selected ledger.', 'You can also jump to a specific month’s entries.'],
   settings: [
     'Manage account and payment information here.',
     'You can also download your data for AI analysis.',
-    'Click the flower icon (🌷) on the top left to send feedback. The developer would love to hear about your experience using the app so far.',
+    'Click the flower icon (🌷) on the top left to share your experience with using the app so far.',
   ],
 };
 const TIP_SCREEN = { firstItem: 1, quantity: 2, price: 3, ledger: 4, totals: 5 }; // settings is an overlay, handled separately
@@ -536,7 +536,7 @@ function LoggerSwitcher({ open, loggers, activeLoggerId, onSelect, onCreate, new
         onClick={(e) => e.stopPropagation()}
       >
         <p className="text-sm font-semibold mb-3" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
-          Add a new ledger
+          Create a new ledger
         </p>
         <div className="flex gap-2 mb-5">
           <input
@@ -933,6 +933,9 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
   const [lastEntryId, setLastEntryId] = useState(null);
   const [scrollToDay, setScrollToDay] = useState(null);
   const cursorRef = useRef(null);
+  const itemSearchRef = useRef(null);
+  // Set on a first run of the real app, so closing the walkthrough puts the cursor in the item search.
+  const focusSearchAfterWalkthrough = useRef(false);
   const dayRefs = useRef({});
   const logScrollRef = useRef(null);
 
@@ -982,6 +985,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
       } catch (e) {}
       if (!seenWalkthrough) {
         setShowWalkthrough(true);
+        if (!demo) focusSearchAfterWalkthrough.current = true;
       }
 
       let tipsSeen = null;
@@ -1135,6 +1139,11 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
     setShowWalkthrough(false);
     setWalkthroughStep(0);
     storage.set('ledgerlog-seen-walkthrough', 'true', false).catch(() => {});
+    if (focusSearchAfterWalkthrough.current) {
+      focusSearchAfterWalkthrough.current = false;
+      // Focusing inside the tap that closes the walkthrough lets phones open the keyboard.
+      if (itemSearchRef.current) itemSearchRef.current.focus();
+    }
   };
 
   const replayWalkthrough = () => {
@@ -1222,6 +1231,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
     markTipsSeen([]); // a fresh start gets the tips again
     setWalkthroughStep(0);
     setShowWalkthrough(true);
+    if (!demo) focusSearchAfterWalkthrough.current = true;
   };
 
   // ---- Export / import all data (manual backup, given Google-only sign-in has no linked-email recovery path) ----
@@ -1646,7 +1656,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
               </button>
               <button
                 onClick={() => setShowLoggerSwitcher(true)}
-                aria-label="Add a ledger"
+                aria-label="Create a ledger"
                 className="w-[30px] h-[30px] flex items-center justify-center rounded-full"
                 style={{ background: 'rgba(245,243,238,0.05)', border: '1px solid rgba(245,243,238,0.1)' }}
               >
@@ -1660,6 +1670,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
             >
               <Search size={16} color="#F5F3EE" />
               <input
+                ref={itemSearchRef}
                 value={query1}
                 onChange={(e) => setQuery1(e.target.value)}
                 onKeyDown={(e) => {
@@ -1737,7 +1748,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
                 <span>{quantity}</span>
                 <span className="inline-block w-0.5 h-9 ml-0.5 animate-pulse" style={{ background: '#01A99D' }} />
               </div>
-              <div className={`mt-4 h-7 ${entryCurrency !== defaultCurrency ? 'mb-6' : ''}`} aria-hidden="true" />
+              <div className="mt-4 h-7" aria-hidden="true" />
             </div>
 
             <div className="grid grid-cols-4 gap-2.5 mb-2">
@@ -1799,28 +1810,31 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
                 <span className="inline-block w-0.5 h-9 ml-0.5 animate-pulse" style={{ background: '#01A99D' }} />
               </div>
 
-              <button
-                onClick={() => setShowCurrencyPicker(true)}
-                className="mt-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                style={{
-                  fontFamily: 'Manrope',
-                  background: entryCurrency !== defaultCurrency ? 'rgba(1,169,157,0.12)' : 'rgba(245,243,238,0.05)',
-                  color: entryCurrency !== defaultCurrency ? '#01A99D' : '#7C8883',
-                  border: `1px solid ${entryCurrency !== defaultCurrency ? 'rgba(1,169,157,0.3)' : 'rgba(245,243,238,0.1)'}`,
-                }}
-              >
-                {entryCurrency} · {currencyOf(entryCurrency).symbol}
-                {entryCurrency !== defaultCurrency ? ' - not your default' : ' - change currency'}
-              </button>
-              {entryCurrency !== defaultCurrency && (
+              {/* The "set as default" link hangs below this button out of flow, so it never shifts the layout. */}
+              <div className="mt-4 relative">
                 <button
-                  onClick={() => setDefaultCurrency(entryCurrency)}
-                  className="mt-2 text-[11px] underline underline-offset-2"
-                  style={{ fontFamily: 'Manrope', color: '#7C8883' }}
+                  onClick={() => setShowCurrencyPicker(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
+                  style={{
+                    fontFamily: 'Manrope',
+                    background: entryCurrency !== defaultCurrency ? 'rgba(1,169,157,0.12)' : 'rgba(245,243,238,0.05)',
+                    color: entryCurrency !== defaultCurrency ? '#01A99D' : '#7C8883',
+                    border: `1px solid ${entryCurrency !== defaultCurrency ? 'rgba(1,169,157,0.3)' : 'rgba(245,243,238,0.1)'}`,
+                  }}
                 >
-                  Set {entryCurrency} as this ledger's default
+                  {entryCurrency} · {currencyOf(entryCurrency).symbol}
+                  {entryCurrency !== defaultCurrency ? ' - not your default' : ' - change currency'}
                 </button>
-              )}
+                {entryCurrency !== defaultCurrency && (
+                  <button
+                    onClick={() => setDefaultCurrency(entryCurrency)}
+                    className="absolute left-1/2 -translate-x-1/2 top-full mt-2 whitespace-nowrap text-[11px] underline underline-offset-2"
+                    style={{ fontFamily: 'Manrope', color: '#7C8883' }}
+                  >
+                    Set {entryCurrency} as this ledger's default
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-4 gap-2.5 mb-2">
