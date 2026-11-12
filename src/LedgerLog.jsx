@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
-import { Search, Check, Delete, Plus, Minus, ChevronLeft, ChevronRight, Calendar, Ban, ArrowLeftRight, Settings, Pencil, Trash2, X, Download, Upload, AlertTriangle, RotateCcw, CalendarDays, CalendarRange, CalendarSearch, ArrowUp } from 'lucide-react';
+import { Search, Check, Delete, Plus, Minus, ChevronLeft, ChevronRight, Calendar, Ban, ArrowLeftRight, Settings, Pencil, Trash2, X, Download, Upload, AlertTriangle, Mail, LogOut, RotateCcw, CalendarDays, CalendarRange, CalendarSearch, ArrowUp } from 'lucide-react';
 
 // Where feedback emails are sent. Set this to your real address.
 const FEEDBACK_EMAIL = 'oge.o.onuora@gmail.com';
@@ -743,6 +743,213 @@ function Walkthrough({ open, step, setStep, onDismiss }) {
   );
 }
 
+// ---- Accounts (UI prototype: everything is stored on this device and no email is actually sent) ----
+const MAX_EMAILS = 3;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// "oge@yahoo.com" -> "o•••@yahoo.com", used as a hint on the sign-in screen.
+const maskEmail = (address) => {
+  const [name, domain] = address.split('@');
+  return `${name.charAt(0)}•••@${domain}`;
+};
+
+const inputStyle = { background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE', fontFamily: 'Manrope' };
+
+// Two steps: enter an email, then the 6-digit code "sent" to it. Calls onVerified with the lower-cased email.
+function EmailCodeForm({ heading, intro, validateEmail, onVerified, onCancel }) {
+  const [step, setStep] = useState('email');
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [sentCode, setSentCode] = useState('');
+  const [error, setError] = useState('');
+
+  const sendCode = () => {
+    const address = email.trim().toLowerCase();
+    if (!EMAIL_PATTERN.test(address)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    const problem = validateEmail ? validateEmail(address) : null;
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setError('');
+    setCode('');
+    setSentCode(String(Math.floor(100000 + Math.random() * 900000)));
+    setStep('code');
+  };
+
+  const verify = () => {
+    if (code !== sentCode) {
+      setError('That code isn’t right. Check it and try again.');
+      return;
+    }
+    onVerified(email.trim().toLowerCase());
+  };
+
+  return (
+    <div className="w-full">
+      <p className="text-sm font-semibold mb-1" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
+        {heading}
+      </p>
+      {step === 'email' ? (
+        <>
+          <p className="text-xs mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+            {intro}
+          </p>
+          <input
+            type="email"
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && sendCode()}
+            enterKeyHint="send"
+            autoComplete="email"
+            placeholder="you@example.com"
+            className="app-input w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+            style={inputStyle}
+          />
+        </>
+      ) : (
+        <>
+          <p className="text-xs mb-2" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+            Enter the 6-digit code that was sent to <span style={{ color: '#F5F3EE' }}>{email.trim().toLowerCase()}</span>.
+          </p>
+          <p className="text-[11px] mb-3 rounded-lg px-2.5 py-1.5" style={{ color: '#01A99D', background: 'rgba(1,169,157,0.08)', fontFamily: 'Manrope' }}>
+            Prototype: no email is sent. Your code is <span className="mono-num font-bold">{sentCode}</span>.
+          </p>
+          <input
+            autoFocus
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            onKeyDown={(e) => e.key === 'Enter' && verify()}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            enterKeyHint="done"
+            placeholder="000000"
+            className="app-input w-full rounded-xl px-3 py-2.5 text-lg outline-none mono-num tracking-[0.4em] text-center"
+            style={inputStyle}
+          />
+          <div className="flex justify-between mt-2">
+            <button
+              onClick={() => {
+                setStep('email');
+                setError('');
+              }}
+              className="text-[11px] underline underline-offset-2"
+              style={{ color: '#7C8883', fontFamily: 'Manrope' }}
+            >
+              Use a different email
+            </button>
+            <button onClick={sendCode} className="text-[11px] underline underline-offset-2" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+              Resend code
+            </button>
+          </div>
+        </>
+      )}
+      {error && (
+        <p className="text-xs mt-2" style={{ color: '#F87171', fontFamily: 'Manrope' }}>
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2.5 mt-4">
+        {onCancel && (
+          <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl text-sm font-medium" style={{ background: 'rgba(245,243,238,0.06)', color: '#F5F3EE', fontFamily: 'Manrope' }}>
+            Cancel
+          </button>
+        )}
+        <button
+          onClick={step === 'email' ? sendCode : verify}
+          disabled={step === 'email' ? !email.trim() : code.length !== 6}
+          className="flex-1 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40"
+          style={{ background: '#01A99D', color: '#0F1210', fontFamily: 'Manrope' }}
+        >
+          {step === 'email' ? 'Send code' : 'Verify'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EmailCodeModal({ open, onCancel, ...formProps }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-6" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onCancel}>
+      <div className="w-full max-w-xs rounded-2xl p-5" style={{ background: '#171C19', border: '1px solid rgba(245,243,238,0.1)' }} onClick={(e) => e.stopPropagation()}>
+        <EmailCodeForm {...formProps} onCancel={onCancel} />
+      </div>
+    </div>
+  );
+}
+
+// Shown instead of the app when accounts exist on this device but nobody is signed in.
+// People can sign in to an existing account or start over with a new one.
+function SignInScreen({ accounts, emailInUse, onSignIn, onCreateAccount, onOpenDemo }) {
+  const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
+  const linked = accounts.flatMap((a) => a.emails.map((e) => maskEmail(e.address)));
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-6" style={{ background: '#0F1210' }}>
+      <div className="w-full max-w-xs flex flex-col items-center">
+        <p className="text-lg font-bold mb-6" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
+          {mode === 'signin' ? 'Welcome back' : 'Start afresh'}
+        </p>
+        {mode === 'signin' ? (
+          <>
+            <EmailCodeForm
+              key="signin"
+              heading="Sign in"
+              intro="Use any email that is linked to your account."
+              validateEmail={(address) => (emailInUse(address) ? null : 'That email is not linked to an account.')}
+              onVerified={onSignIn}
+            />
+            <p className="w-full text-[11px] mt-3 text-center" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+              Linked: {linked.join(', ')}
+            </p>
+            <div className="flex items-center gap-2 mt-5 text-xs" style={{ fontFamily: 'Manrope' }}>
+              <button onClick={() => setMode('signup')} className="underline underline-offset-2" style={{ color: '#01A99D' }}>
+                Create a new account
+              </button>
+              {onOpenDemo && (
+                <>
+                  <span aria-hidden="true" style={{ color: '#7C8883' }}>·</span>
+                  <button onClick={onOpenDemo} className="underline underline-offset-2" style={{ color: '#7C8883' }}>
+                    Try the demo
+                  </button>
+                </>
+              )}
+            </div>
+          </>
+        ) : (
+          <EmailCodeForm
+            key="signup"
+            heading="Create a new account"
+            intro="Start over with a different email. Your other accounts and their ledgers won’t be affected."
+            validateEmail={(address) => (emailInUse(address) ? 'That email is already linked to an account. Sign in with it instead.' : null)}
+            onVerified={onCreateAccount}
+            onCancel={() => setMode('signin')}
+          />
+        )}
+        {mode === 'signup' && (
+          <div className="flex items-center gap-2 mt-5 text-xs" style={{ fontFamily: 'Manrope' }}>
+            <button onClick={() => setMode('signin')} className="underline underline-offset-2" style={{ color: '#01A99D' }}>
+              Sign in instead
+            </button>
+            {onOpenDemo && (
+              <>
+                <span aria-hidden="true" style={{ color: '#7C8883' }}>·</span>
+                <button onClick={onOpenDemo} className="underline underline-offset-2" style={{ color: '#7C8883' }}>
+                  Try the demo
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SettingsScreen({
   onClose,
   loggers,
@@ -757,7 +964,15 @@ function SettingsScreen({
   onOpenImport,
   onRequestDeleteAccount,
   onOpenFeedback,
+  demo,
+  account,
+  onCreateAccount,
+  onAddEmail,
+  onMakePrimary,
+  onRequestRemoveEmail,
+  onRequestSignOut,
 }) {
+  const rowStyle = { background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE', fontFamily: 'Manrope' };
   return (
     <div className="fixed inset-0 z-40 flex justify-center" style={{ background: '#0A0C0B' }}>
       <div className="w-full max-w-sm flex flex-col" style={{ background: '#0F1210', minHeight: '100dvh' }}>
@@ -780,8 +995,64 @@ function SettingsScreen({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 pb-10">
+          {/* Account */}
+          <p className="text-xs uppercase tracking-[0.15em] mb-2 mt-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>Account</p>
+          {demo ? (
+            <p className="text-[11px] mb-8" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+              Accounts aren’t available in the demo.
+            </p>
+          ) : !account ? (
+            <>
+              <p className="text-[11px] mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+                Create an account to protect your ledgers. Link up to {MAX_EMAILS} emails so you can still sign in if you lose access to one of them.
+              </p>
+              <button
+                onClick={onCreateAccount}
+                className="w-full flex items-center justify-center gap-2 rounded-2xl px-4 py-3 mb-8 text-sm font-semibold"
+                style={{ background: '#01A99D', color: '#0F1210', fontFamily: 'Manrope' }}
+              >
+                <Mail size={15} /> Create account
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+                You can sign in with any of these emails (you can link up to {MAX_EMAILS} in case you lose access to any of them).
+              </p>
+              <div className="flex flex-col gap-2 mb-2">
+                {account.emails.map((e) => (
+                  <div key={e.address} className="flex items-center gap-2 p-3 rounded-2xl" style={rowStyle}>
+                    <span className="flex-1 min-w-0 text-sm truncate">{e.address}</span>
+                    {e.primary ? (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full uppercase shrink-0" style={{ background: 'rgba(1,169,157,0.12)', color: '#01A99D' }}>
+                        Primary
+                      </span>
+                    ) : (
+                      <>
+                        <button onClick={() => onMakePrimary(e.address)} className="text-[11px] underline underline-offset-2 shrink-0" style={{ color: '#7C8883' }}>
+                          Make primary
+                        </button>
+                        <button onClick={() => onRequestRemoveEmail(e.address)} aria-label={`Remove ${e.address}`} className="shrink-0">
+                          <Trash2 size={14} color="#7C8883" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {account.emails.length < MAX_EMAILS && (
+                <button onClick={onAddEmail} className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 mb-2 text-sm font-medium" style={rowStyle}>
+                  <Plus size={15} color="#7C8883" /> Add another email ({account.emails.length} of {MAX_EMAILS})
+                </button>
+              )}
+              <button onClick={onRequestSignOut} className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 mb-8 text-sm font-medium" style={rowStyle}>
+                <LogOut size={15} color="#7C8883" /> Sign out
+              </button>
+            </>
+          )}
+
           {/* Ledgers */}
-          <p className="text-xs uppercase tracking-[0.15em] mb-2 mt-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>Ledgers</p>
+          <p className="text-xs uppercase tracking-[0.15em] mb-2" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>Ledgers</p>
           <div className="flex flex-col gap-2 mb-8">
             {loggers.map((l) => (
               <div key={l.id} className="flex items-center gap-2 p-3 rounded-2xl" style={{ background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)' }}>
@@ -882,11 +1153,12 @@ function Chip({ label, active, onClick, onDoubleClick }) {
   );
 }
 
-function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
+function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStorage, accountApi }) {
   // In demo mode everything reads from / writes to a throwaway in-memory store, never the real data.
+  // Otherwise the storage belongs to the signed-in account (see LedgerLog at the bottom).
   const demoStorageRef = useRef(null);
   if (demo && !demoStorageRef.current) demoStorageRef.current = makeMemoryStorage(buildDemoSeed());
-  const storage = demo ? demoStorageRef.current : window.storage;
+  const storage = demo ? demoStorageRef.current : accountStorage || window.storage;
   // In the demo, seen tips live in its throwaway store, so every fresh demo shows its tips again.
   const tipsKey = 'ledgerlog-seen-tips';
 
@@ -1043,6 +1315,32 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
   const [importError, setImportError] = useState('');
 
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+
+  // ---- Account (prototype; real app only). The accounts themselves are managed by LedgerLog. ----
+  const account = accountApi ? accountApi.account : null;
+  const [emailFlow, setEmailFlow] = useState(null); // 'signup' | 'add' | null
+  const [emailPendingRemove, setEmailPendingRemove] = useState(null);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+
+  const createAccount = (address) => {
+    setEmailFlow(null);
+    accountApi.create(address);
+  };
+
+  const addEmail = (address) => {
+    setEmailFlow(null);
+    accountApi.addEmail(address);
+  };
+
+  const removeEmail = () => {
+    accountApi.removeEmail(emailPendingRemove);
+    setEmailPendingRemove(null);
+  };
+
+  const signOut = () => {
+    setShowSignOutConfirm(false);
+    accountApi.signOut(); // the sign-in screen replaces the app
+  };
 
   // ---- First-time tips ----
   const [seenTips, setSeenTips] = useState(null); // null until loaded from storage
@@ -1232,6 +1530,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
     setWalkthroughStep(0);
     setShowWalkthrough(true);
     if (!demo) focusSearchAfterWalkthrough.current = true;
+    if (account) accountApi.deleteActive(); // forget the account too; with others on this device, sign-in shows next
   };
 
   // ---- Export / import all data (manual backup, given Google-only sign-in has no linked-email recovery path) ----
@@ -1601,15 +1900,6 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
       className="w-full flex justify-center"
       style={{ background: '#0A0C0B', minHeight: '100dvh', fontFamily: 'Manrope' }}
     >
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
-        .mono-num { font-family: 'Space Mono', monospace; }
-        .item-search::placeholder, .feedback-input::placeholder { color: #7C8883; opacity: 1; }
-        * { -webkit-tap-highlight-color: transparent; }
-        @keyframes tipIn { from { opacity: 0; margin-top: -8px; } to { opacity: 1; margin-top: 0; } }
-        .tip-toast { animation: tipIn 0.25s ease-out; }
-      `}</style>
-
       <div
         className="w-full max-w-sm flex flex-col"
         // Ledger and Totals screens are locked to the viewport so their lists scroll inside the dashed box.
@@ -2295,6 +2585,13 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
             }}
             onRequestDeleteAccount={() => setShowDeleteAccount(true)}
             onOpenFeedback={() => setShowFeedback(true)}
+            demo={demo}
+            account={account}
+            onCreateAccount={() => setEmailFlow('signup')}
+            onAddEmail={() => setEmailFlow('add')}
+            onMakePrimary={(address) => accountApi.makePrimary(address)}
+            onRequestRemoveEmail={(address) => setEmailPendingRemove(address)}
+            onRequestSignOut={() => setShowSignOutConfirm(true)}
           />
         )}
 
@@ -2395,6 +2692,38 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
           onDismiss={dismissWalkthrough}
         />
 
+        <EmailCodeModal
+          key={emailFlow || 'none'}
+          open={!!emailFlow}
+          heading={emailFlow === 'signup' ? 'Create an account' : 'Add another email'}
+          intro={
+            emailFlow === 'signup'
+              ? 'Enter your email. We will send a code.'
+              : 'Link another email that you can sign in with if you lose access to the other ones.'
+          }
+          validateEmail={(address) => (accountApi && accountApi.emailInUse(address) ? 'That email is already linked to an account.' : null)}
+          onVerified={emailFlow === 'signup' ? createAccount : addEmail}
+          onCancel={() => setEmailFlow(null)}
+        />
+
+        <ConfirmModal
+          open={!!emailPendingRemove}
+          title={`Remove ${emailPendingRemove || ''}?`}
+          message="You won’t be able to sign in with that email any more. You can link it again later."
+          confirmLabel="Remove"
+          onCancel={() => setEmailPendingRemove(null)}
+          onConfirm={removeEmail}
+        />
+
+        <ConfirmModal
+          open={showSignOutConfirm}
+          title="Sign out?"
+          message="Signing out will not delete your ledgers. Sign in again with any linked email to get back to them."
+          confirmLabel="Sign out"
+          onCancel={() => setShowSignOutConfirm(false)}
+          onConfirm={signOut}
+        />
+
         <ConfirmModal
           open={!!ledgerPendingDelete}
           title={`Delete '${loggers.find((l) => l.id === ledgerPendingDelete)?.name || ''}'?`}
@@ -2407,7 +2736,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
         <ConfirmModal
           open={showDeleteAccount}
           title="Delete your account?"
-          message="This permanently deletes every ledger and everything in them, on this device. Consider copying your data first."
+          message="This permanently deletes every ledger, everything in them and your linked emails, on this device. Consider downloading a backup first."
           confirmLabel="Delete everything"
           onCancel={() => setShowDeleteAccount(false)}
           onConfirm={confirmDeleteAccount}
@@ -2468,12 +2797,108 @@ function KeyBtn({ label, onPress, icon, children, muted, small, full }) {
   );
 }
 
+// App-wide styles. Rendered by LedgerLog so they also apply to the sign-in screen, which shows without the app.
+const GLOBAL_STYLES = `
+  @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
+  .mono-num { font-family: 'Space Mono', monospace; }
+  .item-search::placeholder, .feedback-input::placeholder, .app-input::placeholder { color: #7C8883; opacity: 1; }
+  * { -webkit-tap-highlight-color: transparent; }
+  @keyframes tipIn { from { opacity: 0; margin-top: -8px; } to { opacity: 1; margin-top: 0; } }
+  .tip-toast { animation: tipIn 0.25s ease-out; }
+`;
+
+// Several accounts can live on one device (prototype). Each keeps its ledgers under its own key prefix.
+// The first account adopts the ledgers that were here before any account existed (no prefix).
+const makeAccountStorage = (prefix) =>
+  !prefix
+    ? window.storage
+    : {
+        get: (key, shared) => window.storage.get(prefix + key, shared),
+        set: (key, value, shared) => window.storage.set(prefix + key, value, shared),
+        delete: (key, shared) => window.storage.delete(prefix + key, shared),
+      };
+
 export default function LedgerLog() {
   const [demoOpen, setDemoOpen] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [accounts, setAccounts] = useState([]); // [{ id, prefix, emails: [{ address, primary, addedAt }] }]
+  const [sessionId, setSessionId] = useState(null); // id of the signed-in account
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get('ledgerlog-accounts', false);
+        const parsed = res && res.value ? JSON.parse(res.value) : [];
+        if (Array.isArray(parsed)) setAccounts(parsed);
+      } catch (e) {}
+      try {
+        const res = await window.storage.get('ledgerlog-session', false);
+        if (res && res.value) setSessionId(res.value);
+      } catch (e) {}
+      setReady(true);
+    })();
+  }, []);
+
+  const saveAccounts = (next) => {
+    setAccounts(next);
+    window.storage.set('ledgerlog-accounts', JSON.stringify(next), false).catch(() => {});
+  };
+
+  const startSession = (id) => {
+    setSessionId(id);
+    if (id) window.storage.set('ledgerlog-session', id, false).catch(() => {});
+    else window.storage.delete('ledgerlog-session', false).catch(() => {});
+  };
+
+  const activeAccount = accounts.find((a) => a.id === sessionId) || null;
+  const showSignIn = accounts.length > 0 && !activeAccount;
+  const prefix = activeAccount ? activeAccount.prefix : '';
+  const storage = useMemo(() => makeAccountStorage(prefix), [prefix]);
+
+  const emailInUse = (address) => accounts.some((a) => a.emails.some((e) => e.address === address));
+  const accountWithEmail = (address) => accounts.find((a) => a.emails.some((e) => e.address === address));
+
+  // keepCurrentLedgers: created from Settings, so the account takes over the ledgers already on screen.
+  const createAccount = (address, keepCurrentLedgers) => {
+    const id = 'acct-' + Date.now();
+    const account = { id, prefix: keepCurrentLedgers ? '' : `${id}:`, emails: [{ address, primary: true, addedAt: Date.now() }] };
+    saveAccounts([...accounts, account]);
+    startSession(id);
+  };
+
+  const updateActive = (change) => saveAccounts(accounts.map((a) => (a.id === activeAccount.id ? change(a) : a)));
+
+  const accountApi = {
+    account: activeAccount,
+    emailInUse,
+    create: (address) => createAccount(address, true),
+    addEmail: (address) => updateActive((a) => ({ ...a, emails: [...a.emails, { address, primary: false, addedAt: Date.now() }] })),
+    makePrimary: (address) => updateActive((a) => ({ ...a, emails: a.emails.map((e) => ({ ...e, primary: e.address === address })) })),
+    removeEmail: (address) => updateActive((a) => ({ ...a, emails: a.emails.filter((e) => e.address !== address) })),
+    signOut: () => startSession(null),
+    deleteActive: () => {
+      saveAccounts(accounts.filter((a) => a.id !== activeAccount.id));
+      startSession(null);
+    },
+  };
+
+  if (!ready) return <div style={{ background: '#0A0C0B', minHeight: '100dvh' }} />;
 
   return (
     <>
-      <LedgerApp onOpenDemo={() => setDemoOpen(true)} />
+      <style>{GLOBAL_STYLES}</style>
+      {showSignIn ? (
+        <SignInScreen
+          accounts={accounts}
+          emailInUse={emailInUse}
+          onSignIn={(address) => startSession(accountWithEmail(address).id)}
+          onCreateAccount={(address) => createAccount(address, false)}
+          onOpenDemo={() => setDemoOpen(true)}
+        />
+      ) : (
+        // A different account means different ledgers, so the app remounts and loads them fresh.
+        <LedgerApp key={prefix || 'root'} storage={storage} accountApi={accountApi} onOpenDemo={() => setDemoOpen(true)} />
+      )}
       {demoOpen && (
         <div
           className="fixed inset-0 overflow-y-auto"
