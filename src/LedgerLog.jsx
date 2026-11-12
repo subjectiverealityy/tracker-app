@@ -26,6 +26,7 @@ const TIPS = {
     'Add items in single units (you will be asked to add their quantities later).',
     'A big circle will appear after you add your first item. Tap it to add the item’s quantity and price.',
     'Tip: Double-tap an item to delete it.',
+    'Tap your ledger’s name to switch ledgers or add a new one - you can edit its name or delete it in Settings (top-left).',
   ],
   quantity: [<>Tip: Use ‘00’ or ‘000’ on the<br />right-hand side of the keypad for faster entry.</>],
   price: ['You can choose a different currency here or change the default currency.'],
@@ -535,9 +536,28 @@ function LoggerSwitcher({ open, loggers, activeLoggerId, onSelect, onCreate, new
         onClick={(e) => e.stopPropagation()}
       >
         <p className="text-sm font-semibold mb-3" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
-          Switch ledger
+          Add a new ledger
         </p>
-        <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto mb-4">
+        <div className="flex gap-2 mb-5">
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && onCreate()}
+            placeholder="Name e.g. Business Expenses"
+            className="flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
+            style={{ background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE' }}
+          />
+          <button onClick={onCreate} aria-label="Create ledger" className="px-3.5 rounded-xl flex items-center justify-center" style={{ background: '#01A99D' }}>
+            <Plus size={16} color="#0F1210" strokeWidth={3} />
+          </button>
+        </div>
+        <p className="text-sm font-semibold mb-1" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
+          Switch between existing ledgers
+        </p>
+        <p className="text-xs mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+          You can rename or delete them in Settings.
+        </p>
+        <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto">
           {loggers.map((l) => (
             <button
               key={l.id}
@@ -554,19 +574,6 @@ function LoggerSwitcher({ open, loggers, activeLoggerId, onSelect, onCreate, new
               {l.id === activeLoggerId && <Check size={14} color="#01A99D" />}
             </button>
           ))}
-        </div>
-        <div className="flex gap-2">
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && onCreate()}
-            placeholder="New ledger name"
-            className="flex-1 rounded-xl px-3 py-2.5 text-sm outline-none"
-            style={{ background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE' }}
-          />
-          <button onClick={onCreate} aria-label="Create ledger" className="px-3.5 rounded-xl flex items-center justify-center" style={{ background: '#01A99D' }}>
-            <Plus size={16} color="#0F1210" strokeWidth={3} />
-          </button>
         </div>
       </div>
     </div>
@@ -891,7 +898,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
   const [items, setItems] = useState([]);
   const [entries, setEntries] = useState([]);
 
-  const [loggers, setLoggers] = useState([{ id: 'default', name: 'My Ledger' }]);
+  const [loggers, setLoggers] = useState([{ id: 'default', name: 'Ledger 1' }]);
   const [activeLoggerId, setActiveLoggerId] = useState('default');
   const [showLoggerSwitcher, setShowLoggerSwitcher] = useState(false);
   const [newLoggerName, setNewLoggerName] = useState('');
@@ -990,7 +997,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
       }
       setSeenTips(tipsSeen);
 
-      let loggersList = [{ id: 'default', name: 'My Ledger' }];
+      let loggersList = [{ id: 'default', name: 'Ledger 1' }];
       let activeId = 'default';
 
       try {
@@ -1170,7 +1177,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
     setLedgerPendingDelete(null);
 
     const remaining = loggers.filter((l) => l.id !== id);
-    const finalRemaining = remaining.length ? remaining : [{ id: 'logger-' + Date.now(), name: 'My Ledger' }];
+    const finalRemaining = remaining.length ? remaining : [{ id: 'logger-' + Date.now(), name: 'Ledger 1' }];
 
     setLoggers(finalRemaining);
     await deleteLedgerKeys(id);
@@ -1197,7 +1204,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
     }
 
     const freshId = 'default';
-    setLoggers([{ id: freshId, name: 'My Ledger' }]);
+    setLoggers([{ id: freshId, name: 'Ledger 1' }]);
     setActiveLoggerId(freshId);
     setItems([]);
     setEntries([]);
@@ -1635,7 +1642,15 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
                 style={{ fontFamily: 'Manrope', background: 'rgba(245,243,238,0.05)', color: '#F5F3EE', border: '1px solid rgba(245,243,238,0.1)' }}
               >
                 <ArrowLeftRight size={12} color="#F5F3EE" />
-                {loggers.find((l) => l.id === activeLoggerId)?.name || 'My Ledger'}
+                {loggers.find((l) => l.id === activeLoggerId)?.name || 'Ledger 1'}
+              </button>
+              <button
+                onClick={() => setShowLoggerSwitcher(true)}
+                aria-label="Add a ledger"
+                className="w-[30px] h-[30px] flex items-center justify-center rounded-full"
+                style={{ background: 'rgba(245,243,238,0.05)', border: '1px solid rgba(245,243,238,0.1)' }}
+              >
+                <Plus size={12} color="#F5F3EE" />
               </button>
             </div>
 
@@ -1838,7 +1853,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
         {screen === 4 && (
           <div className="flex-1 min-h-0 flex flex-col px-5 pb-8">
             <TopBar
-              title={loggers.find((l) => l.id === activeLoggerId)?.name || 'My Ledger'}
+              title={loggers.find((l) => l.id === activeLoggerId)?.name || 'Ledger 1'}
               stepLabel="Ledger"
               left={
                 <button
