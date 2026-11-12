@@ -26,12 +26,12 @@ const TIPS = {
     'Add items in single units (you will be asked to add their quantities later).',
     'A big circle will appear after you add your first item. Tap it to add the item’s quantity and price.',
     'Tip: Double-tap an item to delete it.',
-    'Switch between ledgers or create a new ledger here. Rename or delete ledgers in Settings.',
+    'Switch between ledgers or create a new ledger here, but rename or delete ledgers in Settings.',
   ],
   quantity: [<>Tip: Use ‘00’ or ‘000’ on the<br />right-hand side of the keypad for faster entry.</>],
   price: ['Enter the total price (not the unit price).', 'You can choose a different currency here or change the default currency.'],
   ledger: ['You can search past entries here and compare per-unit prices.', 'Tip: Double-tap an entry to cancel it.'],
-  totals: ['Here, you can see daily, monthly and yearly totals of your selected ledger.', 'You can also jump to a specific month’s entries.'],
+  totals: ['Here, you can see the daily, monthly and yearly totals of your selected ledger.', 'You can also jump to a specific month’s entries or a specific day’s entries.'],
   settings: [
     'Manage account and payment information here.',
     'You can also download your data for AI analysis.',
@@ -1541,7 +1541,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
         map.set(key, { key, date: d, total: 0, count: 0, otherCurrencies: {} });
       }
       const bucket = map.get(key);
-      bucket.count += 1; // every purchase that day, regardless of currency
+      bucket.count += 1; // every entry that day, regardless of currency
       if (cur === defaultCurrency) {
         bucket.total += amount;
       } else {
@@ -2075,7 +2075,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
                                   className="text-xs text-left underline underline-offset-2"
                                   style={{ color: '#7C8883' }}
                                 >
-                                  {m.count} {m.count === 1 ? 'purchase' : 'purchases'}
+                                  {m.count} {m.count === 1 ? 'entry' : 'entries'}
                                 </button>
                               </div>
                               <span className="mono-num text-lg font-bold" style={{ color: '#01A99D' }}>
@@ -2140,7 +2140,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
                               className="text-xs text-left underline underline-offset-2"
                               style={{ color: '#7C8883' }}
                             >
-                              {d.count} {d.count === 1 ? 'purchase' : 'purchases'}
+                              {d.count} {d.count === 1 ? 'entry' : 'entries'}
                             </button>
                           </div>
                           <span className="mono-num text-lg font-bold" style={{ color: '#01A99D' }}>
