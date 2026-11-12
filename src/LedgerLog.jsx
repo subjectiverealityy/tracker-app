@@ -19,6 +19,28 @@ const CURRENCIES = [
 ];
 const currencyOf = (code) => CURRENCIES.find((c) => c.code === code) || CURRENCIES[0];
 
+// One-time tips shown to new users, keyed by name, one bullet per array entry.
+// TIP_SCREEN says which screen each belongs to.
+const TIPS = {
+  firstItem: [
+    'Add items in single units (you will be asked to add their quantities later).',
+    'A big circle will appear after you add your first item. Tap it to add the item’s quantity and price.',
+    'Tip: Double-tap an item to delete it.',
+  ],
+  quantity: [<>Tip: Use ‘00’ or ‘000’ on the<br />right-hand side of the keypad for faster entry.</>],
+  price: ['You can choose a different currency here or change the default currency.'],
+  ledger: ['You can search past entries here and compare per-unit prices.', 'Tip: Double-tap an entry to cancel it.'],
+  totals: ['Here, you can see daily, monthly and yearly totals of your selected ledger.', 'You can also jump to a specific month’s entries.'],
+  settings: [
+    'Manage account and payment information here.',
+    'You can also download your data for AI analysis.',
+    'Click the flower icon (🌷) on the top left to send feedback. The developer would love to hear about your experience using the app so far.',
+  ],
+};
+const TIP_SCREEN = { firstItem: 1, quantity: 2, price: 3, ledger: 4, totals: 5 }; // settings is an overlay, handled separately
+const DEMO_TIPS = ['firstItem', 'ledger', 'totals'];
+const DEMO_NOTICE = 'You can’t add entries in the demo. Switch to the real app to start logging.';
+
 // Intl formatters are slow to create, so build them once and reuse.
 const NUM_FMT = new Intl.NumberFormat('en-NG', { maximumFractionDigits: 2 });
 const DAY_FMT = new Intl.DateTimeFormat('en-NG', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -868,6 +890,8 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
   const demoStorageRef = useRef(null);
   if (demo && !demoStorageRef.current) demoStorageRef.current = makeMemoryStorage(buildDemoSeed());
   const storage = demo ? demoStorageRef.current : window.storage;
+  // In the demo, seen tips live in its throwaway store, so every fresh demo shows its tips again.
+  const tipsKey = 'ledgerlog-seen-tips';
 
   const [demoToast, setDemoToast] = useState(false);
   const demoToastTimer = useRef(null);
@@ -963,6 +987,19 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
         setShowWalkthrough(true);
       }
 
+      let tipsSeen = null;
+      try {
+        const resT = await storage.get(tipsKey, false);
+        if (resT && resT.value) tipsSeen = JSON.parse(resT.value);
+      } catch (e) {}
+      if (!Array.isArray(tipsSeen)) {
+        // No record yet: brand-new users get every tip; people who used the app before tips existed get none.
+        // Every demo session starts with no tips seen.
+        tipsSeen = !demo && seenWalkthrough ? Object.keys(TIPS) : [];
+        storage.set(tipsKey, JSON.stringify(tipsSeen), false).catch(() => {});
+      }
+      setSeenTips(tipsSeen);
+
       let loggersList = [{ id: 'default', name: 'My Ledger' }];
       let activeId = 'default';
 
@@ -1005,6 +1042,43 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
   const [importError, setImportError] = useState('');
 
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+
+  // ---- First-time tips ----
+  const [seenTips, setSeenTips] = useState(null); // null until loaded from storage
+  const [activeTip, setActiveTip] = useState(null);
+
+  const markTipsSeen = (list) => {
+    setSeenTips(list);
+    storage.set(tipsKey, JSON.stringify(list), false).catch(() => {});
+  };
+
+  // Shows a tip once ever; returns whether it was shown. The demo only shows its own subset.
+  const showTip = (key) => {
+    if (demo && !DEMO_TIPS.includes(key)) return false;
+    if (!seenTips || seenTips.includes(key)) return false;
+    setActiveTip(key);
+    markTipsSeen([...seenTips, key]);
+    return true;
+  };
+
+  useEffect(() => {
+    if (!loaded) return;
+    // Leaving a screen closes its tip.
+    setActiveTip((prev) => (prev && TIP_SCREEN[prev] === screen ? prev : null));
+    if (showWalkthrough) return; // wait until the walkthrough is closed
+    if (screen === 1) showTip('firstItem');
+    else if (screen === 2) showTip('quantity');
+    else if (screen === 3) showTip('price');
+    else if (screen === 4 && entries.length > 0) showTip('ledger');
+    else if (screen === 5) showTip('totals');
+  }, [screen, loaded, showWalkthrough]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    // Opening settings hides any screen tip (it would sit on top); closing it hides the settings tip.
+    setActiveTip(null);
+    if (showSettings) showTip('settings');
+  }, [showSettings]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -1147,6 +1221,8 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
     setPrice('');
     setQuantity('1');
     setQtyIsDefault(true);
+    setActiveTip(null);
+    markTipsSeen([]); // a fresh start gets the tips again
     setWalkthroughStep(0);
     setShowWalkthrough(true);
   };
@@ -1230,6 +1306,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
     }
 
     setLoggers(parsed.loggers);
+    markTipsSeen(Object.keys(TIPS)); // restoring a backup means they already know the app
 
     setShowImport(false);
     setShowSettings(false);
@@ -1522,6 +1599,8 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
         .mono-num { font-family: 'Space Mono', monospace; }
         .item-search::placeholder, .feedback-input::placeholder { color: #7C8883; opacity: 1; }
         * { -webkit-tap-highlight-color: transparent; }
+        @keyframes tipIn { from { opacity: 0; margin-top: -8px; } to { opacity: 1; margin-top: 0; } }
+        .tip-toast { animation: tipIn 0.25s ease-out; }
       `}</style>
 
       <div
@@ -1578,6 +1657,17 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
               <input
                 value={query1}
                 onChange={(e) => setQuery1(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter adds the typed item, or selects it if it already exists.
+                  if (e.key !== 'Enter') return;
+                  e.preventDefault();
+                  const q = query1.trim().toLowerCase();
+                  if (!q) return;
+                  const match = items.find((i) => i.toLowerCase() === q);
+                  if (match) chooseItem(match);
+                  else addNewItem();
+                }}
+                enterKeyHint="done"
                 placeholder="Search or add an item"
                 className="item-search flex-1 bg-transparent outline-none text-sm"
                 style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}
@@ -1699,7 +1789,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
                 className="mono-num mt-2 text-5xl font-bold flex items-baseline gap-1"
                 style={{ color: '#01A99D', minHeight: '3.5rem' }}
               >
-                <span style={{ fontSize: '2rem', opacity: 0.7 }}>{currencyOf(entryCurrency).symbol}</span>
+                <span style={{ fontSize: '2rem' }}>{currencyOf(entryCurrency).symbol}</span>
                 <span>{price}</span>
                 <span className="inline-block w-0.5 h-9 ml-0.5 animate-pulse" style={{ background: '#01A99D' }} />
               </div>
@@ -2143,7 +2233,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
           message={
             nullifyTarget && nullifyTarget.nullified
               ? 'It will be counted in totals again.'
-              : 'It stays in the list, but isn\u2019t counted in totals. You can restore it any time.'
+              : 'It will stay in the ledger list, but will not be counted in totals. You can restore it any time.'
           }
           confirmLabel={nullifyTarget && nullifyTarget.nullified ? 'Restore' : 'Nullify'}
           onCancel={() => setNullifyEntryId(null)}
@@ -2217,17 +2307,18 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
             >
               Exit Demo
             </button>
-            {demoToast && (
+            {demoToast && activeTip !== 'ledger' && (
               <div
-                className="fixed left-1/2 w-full max-w-xs px-4"
-                style={{ top: 24, transform: 'translateX(-50%)', zIndex: 95 }}
+                className="fixed left-1/2 w-full max-w-xs px-4 tip-toast"
+                style={{ top: '50%', transform: 'translate(-50%, -50%)', zIndex: 95 }}
                 role="status"
               >
                 <div
-                  className="rounded-2xl px-4 py-3 text-sm text-center shadow-2xl"
-                  style={{ background: '#171C19', border: '1px solid rgba(1,169,157,0.4)', color: '#F5F3EE', fontFamily: 'Manrope' }}
+                  className="rounded-2xl px-4 py-3 text-[13px] text-left shadow-2xl flex gap-2"
+                  style={{ background: '#171C19', border: '1px solid rgba(1,169,157,0.4)', color: '#01A99D', fontFamily: 'Manrope', lineHeight: 1.45 }}
                 >
-                  You can’t add entries in the demo. Switch to the real app to start logging.
+                  <span aria-hidden="true" className="shrink-0 rounded-full" style={{ width: 4, height: 4, marginTop: 7.5, background: '#01A99D' }} />
+                  <span>{DEMO_NOTICE}</span>
                 </div>
               </div>
             )}
@@ -2251,6 +2342,31 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo }) {
           >
             <ArrowUp size={14} color="#01A99D" strokeWidth={3} /> Back to top
           </button>
+        )}
+
+        {activeTip && !(demo && demoToast && activeTip !== 'ledger') && (
+          <div
+            className="fixed left-1/2 w-full max-w-xs px-4 tip-toast"
+            style={{ top: '50%', transform: 'translate(-50%, -50%)', zIndex: 45 }}
+            role="status"
+          >
+            <button
+              onClick={() => setActiveTip(null)}
+              aria-label="Dismiss tip"
+              className="w-full rounded-2xl pl-4 pr-9 py-3 text-[13px] text-left shadow-2xl relative"
+              style={{ background: '#171C19', border: '1px solid rgba(1,169,157,0.4)', color: '#F5F3EE', fontFamily: 'Manrope', lineHeight: 1.45 }}
+            >
+              <ul className="flex flex-col gap-1.5">
+                {(demo && activeTip === 'ledger' ? [...TIPS.ledger, DEMO_NOTICE] : TIPS[activeTip]).map((s, i) => (
+                  <li key={i} className="flex gap-2" style={s === DEMO_NOTICE ? { color: '#01A99D' } : undefined}>
+                    <span aria-hidden="true" className="shrink-0 rounded-full" style={{ width: 4, height: 4, marginTop: 7.5, background: '#01A99D' }} />
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
+              <X size={14} color="#7C8883" style={{ position: 'absolute', top: 12, right: 12 }} />
+            </button>
+          </div>
         )}
 
         <Walkthrough
