@@ -1445,7 +1445,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
   };
 
   const replayWalkthrough = () => {
-    setShowSettings(false);
+    // Settings stays open underneath (the walkthrough covers it), so closing the walkthrough returns there.
     setWalkthroughStep(0);
     setShowWalkthrough(true);
   };
