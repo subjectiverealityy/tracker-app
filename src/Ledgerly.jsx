@@ -97,7 +97,7 @@ const TIPS = {
   settings: [
     'Manage account and payment information here.',
     <>You can also <strong>download your data for analysis</strong>.</>,
-    'Click the flower icon (🌷) on the top-left to send feedback.',
+    <>Click the flower icon (🌷) on the top-left to <strong>send feedback</strong>.</>,
   ],
 };
 const TIP_SCREEN = { firstItem: 1, quantity: 2, price: 3, ledger: 4, totals: 5 }; // settings is an overlay, handled separately
@@ -1587,7 +1587,7 @@ function useTimedToast(duration = 3500) {
   return { message, leaving, show, hide, clear };
 }
 
-function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStorage, accountApi, focusSearchOnStart = false }) {
+function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStorage, accountApi }) {
   // In demo mode everything reads from / writes to a throwaway in-memory store, never the real data.
   // Otherwise the storage belongs to the signed-in account (see Ledgerly at the bottom).
   const demoStorageRef = useRef(null);
@@ -1642,7 +1642,6 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
   const [lastEntryId, setLastEntryId] = useState(null);
   const [scrollToDay, setScrollToDay] = useState(null);
   const cursorRef = useRef(null);
-  const itemSearchRef = useRef(null);
   const dayRefs = useRef({});
   const logScrollRef = useRef(null);
 
@@ -1910,11 +1909,6 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
     setWalkthroughStep(0);
     storage.set('ledgerly-seen-walkthrough', 'true', false).catch(() => {});
   };
-
-  // Straight after signing up, the cursor waits in the item search so the keyboard is ready.
-  useEffect(() => {
-    if (loaded && focusSearchOnStart && itemSearchRef.current) itemSearchRef.current.focus();
-  }, [loaded]);
 
   const replayWalkthrough = () => {
     // Settings stays open underneath (the walkthrough covers it), so closing the walkthrough returns there.
@@ -2423,7 +2417,6 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
             >
               <Search size={16} color="#F5F3EE" />
               <input
-                ref={itemSearchRef}
                 value={query1}
                 onChange={(e) => setQuery1(e.target.value)}
                 onKeyDown={(e) => {
@@ -3349,7 +3342,6 @@ export default function Ledgerly() {
   const [sessionId, setSessionId] = useState(null); // id of the signed-in account
   const [introDone, setIntroDone] = useState(false); // the 3 intro screens shown before signing up
   const [introStep, setIntroStep] = useState(0);
-  const [justSignedUp, setJustSignedUp] = useState(false);
   const [replayingIntro, setReplayingIntro] = useState(false); // intro reopened from the sign-up screen
 
   useEffect(() => {
@@ -3412,12 +3404,10 @@ export default function Ledgerly() {
       await ns.set('ledgerly-seen-walkthrough', 'true', false);
     } catch (e) {}
     saveAccounts([...accounts, { id, prefix, emails: [{ address, primary: true, addedAt: Date.now() }] }]);
-    setJustSignedUp(true);
     startSession(id);
   };
 
   const signIn = (address) => {
-    setJustSignedUp(false);
     startSession(accountWithEmail(address).id);
   };
 
@@ -3429,14 +3419,10 @@ export default function Ledgerly() {
     addEmail: (address) => updateActive((a) => ({ ...a, emails: [...a.emails, { address, primary: false, addedAt: Date.now() }] })),
     makePrimary: (address) => updateActive((a) => ({ ...a, emails: a.emails.map((e) => ({ ...e, primary: e.address === address })) })),
     removeEmail: (address) => updateActive((a) => ({ ...a, emails: a.emails.filter((e) => e.address !== address) })),
-    signOut: () => {
-      setJustSignedUp(false);
-      startSession(null);
-    },
+    signOut: () => startSession(null),
     deleteActive: () => {
       const remaining = accounts.filter((a) => a.id !== activeAccount.id);
       saveAccounts(remaining);
-      setJustSignedUp(false);
       startSession(null);
       if (!remaining.length) {
         // A full fresh start: the intro screens come back before signing up again.
@@ -3457,7 +3443,6 @@ export default function Ledgerly() {
           key={prefix || 'root'}
           storage={storage}
           accountApi={accountApi}
-          focusSearchOnStart={justSignedUp}
           onOpenDemo={() => setDemoOpen(true)}
         />
       ) : !introDone ? (
