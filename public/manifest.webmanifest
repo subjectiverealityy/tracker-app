@@ -1,0 +1,15 @@
+{
+  "name": "Ledgerly",
+  "short_name": "Ledgerly",
+  "description": "Quickly log what you buy / sell, in as many ledgers as you need.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0F1210",
+  "theme_color": "#0F1210",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
-import { Search, Check, Delete, Plus, Minus, ChevronLeft, ChevronRight, Calendar, Ban, ArrowLeftRight, Settings, Pencil, Trash2, X, Download, Upload, AlertTriangle, Mail, LogOut, RotateCcw, CalendarDays, CalendarRange, CalendarSearch, ArrowUp } from 'lucide-react';
+import { Search, Check, Delete, Plus, Minus, ChevronLeft, ChevronRight, Calendar, Ban, ArrowLeftRight, Settings, Pencil, Trash2, X, Download, AlertTriangle, LogOut, RotateCcw, Rocket, Copy, CalendarDays, CalendarRange, CalendarSearch, ArrowUp } from 'lucide-react';
 
 // Where feedback emails are sent. Set this to your real address.
 const FEEDBACK_EMAIL = 'oge.o.onuora@gmail.com';
 
-const CURRENCIES = [
+// Currencies with hand-picked symbols (the browser's own would be ambiguous or less familiar).
+const COMMON_CURRENCIES = [
   // African currencies first
   { code: 'NGN', symbol: '₦', name: 'Nigerian Naira' },
   { code: 'GHS', symbol: '₵', name: 'Ghanaian Cedi' },
@@ -17,30 +18,93 @@ const CURRENCIES = [
   { code: 'EUR', symbol: '€', name: 'Euro' },
   { code: 'CAD', symbol: 'CA$', name: 'Canadian Dollar' },
 ];
-const currencyOf = (code) => CURRENCIES.find((c) => c.code === code) || CURRENCIES[0];
+
+// Every currency in current use (ISO 4217, as of 2026). Names and symbols come from the browser.
+const ISO_CURRENCY_CODES =
+  'AED AFN ALL AMD AOA ARS AUD AWG AZN BAM BBD BDT BHD BIF BMD BND BOB BRL BSD BTN BWP BYN BZD CAD CDF CHF CLP CNY COP ' +
+  'CRC CUP CVE CZK DJF DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HTG HUF IDR ILS INR ' +
+  'IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRU ' +
+  'MUR MVR MWK MXN MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD SCR SDG ' +
+  'SEK SGD SHP SLE SOS SRD SSP STN SVC SYP SZL THB TJS TMT TND TOP TRY TTD TWD TZS UAH UGX USD UYU UZS VES VND VUV WST ' +
+  'XAF XCD XCG XOF XPF YER ZAR ZMW ZWG';
+
+const currencyName = (() => {
+  let names = null;
+  try {
+    names = new Intl.DisplayNames(['en-GB'], { type: 'currency' });
+  } catch (e) {}
+  return (code) => {
+    try {
+      const name = names && names.of(code);
+      if (name && name !== code) return name.charAt(0).toUpperCase() + name.slice(1);
+    } catch (e) {}
+    return code;
+  };
+})();
+
+// "A$", "₹", "₩"... Falls back to the narrow symbol where that's unambiguous, otherwise the code itself.
+const currencySymbol = (code) => {
+  const symbolFor = (display) => {
+    try {
+      const part = new Intl.NumberFormat('en-GB', { style: 'currency', currency: code, currencyDisplay: display })
+        .formatToParts(0)
+        .find((p) => p.type === 'currency');
+      return part ? part.value : code;
+    } catch (e) {
+      return code;
+    }
+  };
+  const symbol = symbolFor('symbol');
+  if (symbol !== code) return symbol;
+  const narrow = symbolFor('narrowSymbol');
+  return narrow && narrow !== '$' ? narrow : code;
+};
+
+// All currencies, alphabetically by name.
+const CURRENCIES = [
+  ...COMMON_CURRENCIES,
+  ...ISO_CURRENCY_CODES.split(' ')
+    .filter((code) => !COMMON_CURRENCIES.some((c) => c.code === code))
+    .map((code) => ({ code, symbol: currencySymbol(code), name: currencyName(code) })),
+].sort((a, b) => a.name.localeCompare(b.name));
+const currencyOf = (code) =>
+  CURRENCIES.find((c) => c.code === code) || (code ? { code, symbol: code, name: code } : COMMON_CURRENCIES[0]);
 
 // One-time tips shown to new users, keyed by name, one bullet per array entry.
 // TIP_SCREEN says which screen each belongs to.
 const TIPS = {
   firstItem: [
-    'Add items in single units (you will be asked to add their quantities later).',
-    'A big circle will appear after you add your first item. Tap it to add the item’s quantity and price.',
-    'Tip: Double-tap an item to delete it.',
-    'Switch between ledgers or create a new ledger here, but rename or delete ledgers in Settings.',
+    <>Add items in <strong>single units</strong> (you will be asked to add their quantity and price later).</>,
+    'A big circle with a ‘✓’ icon will appear after you add your first item. Tap it to add the item’s quantity and price.',
+    <><strong>Tip:</strong> Double-tap an item to delete it.</>,
+    <>
+      <strong>Switch between ledgers</strong> or <strong>create a new ledger</strong> on this screen, but rename or delete ledgers in Settings.
+    </>,
   ],
-  quantity: [<>Tip: Use ‘00’ or ‘000’ on the<br />right-hand side of the keypad for faster entry.</>],
-  price: ['Enter the total price (not the unit price).', 'You can choose a different currency here or change the default currency.'],
-  ledger: ['You can search past entries here and compare per-unit prices.', 'Tip: Double-tap an entry to cancel it.'],
-  totals: ['Here, you can see the daily, monthly and yearly totals of your selected ledger.', 'You can also jump to a specific month’s entries or a specific day’s entries.'],
+  quantity: [<><strong>Tip:</strong> Use ‘00’ or ‘000’ on the<br />right-hand side of the keypad for faster entry.</>],
+  price: [
+    <>Enter the <strong>total price</strong> (not the unit price).</>,
+    <>You can <strong>choose a different currency</strong> here or <strong>change the default currency</strong>.</>,
+  ],
+  ledger: [
+    <>You can <strong>search past entries</strong> here and <strong>compare per-unit prices</strong>.</>,
+    <><strong>Tip:</strong> Double-tap an entry to cancel it.</>,
+  ],
+  totals: [
+    'Here, you can see the daily, monthly and yearly totals of your selected ledger.',
+    <>You can also <strong>jump</strong> to a specific month’s entries or a specific day’s entries.</>,
+  ],
   settings: [
     'Manage account and payment information here.',
-    'You can also download your data for AI analysis.',
-    'Click the flower icon (🌷) on the top left to share your experience with using the app so far.',
+    <>You can also <strong>download your data for analysis</strong>.</>,
+    'Click the flower icon (🌷) on the top-left to send feedback.',
   ],
 };
 const TIP_SCREEN = { firstItem: 1, quantity: 2, price: 3, ledger: 4, totals: 5 }; // settings is an overlay, handled separately
 const DEMO_TIPS = ['firstItem', 'ledger', 'totals'];
-const DEMO_NOTICE = 'You can’t add entries in the demo. Switch to the real app to start logging.';
+// Shown in the demo's Settings in place of a real account.
+const DEMO_ACCOUNT = { id: 'demo', prefix: 'demo:', emails: [{ address: 'you@example.com', primary: true, addedAt: 0 }] };
+const DEMO_NOTICE ='You can’t add entries in the demo. Switch to the real app to start logging expenses and income.';
 
 // Intl formatters are slow to create, so build them once and reuse.
 const NUM_FMT = new Intl.NumberFormat('en-NG', { maximumFractionDigits: 2 });
@@ -334,18 +398,18 @@ const buildDemoSeed = () => {
   const itemsOf = (entries) => Array.from(new Set(entries.map((e) => e.name)));
 
   return {
-    'ledgerlog-seen-walkthrough': 'true',
-    'ledgerlog-loggers': JSON.stringify([
+    'ledgerly-seen-walkthrough': 'true',
+    'ledgerly-loggers': JSON.stringify([
       { id: 'demo-shop', name: 'Provision Store' },
       { id: 'demo-home', name: 'Home & Personal' },
     ]),
-    'ledgerlog-active-logger': 'demo-shop',
-    'ledgerlog-items-demo-shop': JSON.stringify(itemsOf(shopEntries)),
-    'ledgerlog-entries-demo-shop': JSON.stringify(shopEntries),
-    'ledgerlog-currency-demo-shop': 'NGN',
-    'ledgerlog-items-demo-home': JSON.stringify(itemsOf(homeEntries)),
-    'ledgerlog-entries-demo-home': JSON.stringify(homeEntries),
-    'ledgerlog-currency-demo-home': 'NGN',
+    'ledgerly-active-logger': 'demo-shop',
+    'ledgerly-items-demo-shop': JSON.stringify(itemsOf(shopEntries)),
+    'ledgerly-entries-demo-shop': JSON.stringify(shopEntries),
+    'ledgerly-currency-demo-shop': 'NGN',
+    'ledgerly-items-demo-home': JSON.stringify(itemsOf(homeEntries)),
+    'ledgerly-entries-demo-home': JSON.stringify(homeEntries),
+    'ledgerly-currency-demo-home': 'NGN',
   };
 };
 
@@ -370,7 +434,8 @@ function ConfirmCircle({ show, onClick, label, onDecrement, onIncrement, raised 
       className={`transition-all duration-300 ease-out ${hasSteppers ? 'flex items-center gap-4' : ''}`}
       style={{
         position: 'fixed', // stays in view even when the page behind it is long
-        bottom: raised ? 60 : '2rem', // raised in the demo so it clears the Exit Demo pill
+        // Raised in the demo so it clears the Exit Demo pill; always clear of the home bar.
+        bottom: `calc(${raised ? '60px' : '2rem'} + env(safe-area-inset-bottom))`,
         zIndex: 30,
         left: '50%',
         right: 'auto',
@@ -431,7 +496,7 @@ function TopBar({ title, step, stepLabel, onBack, right, left }) {
         <span className="text-[10px] tracking-[0.2em] uppercase" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
           {stepLabel || `Step ${step} of 3`}
         </span>
-        <span className="text-sm font-semibold" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
+        <span className="text-sm font-semibold text-center" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
           {title}
         </span>
       </div>
@@ -522,7 +587,19 @@ function MonthYearPicker({ open, availableMonths, onCancel, onSelect }) {
   );
 }
 
-function LoggerSwitcher({ open, loggers, activeLoggerId, onSelect, onCreate, newName, setNewName, onCancel }) {
+// What a ledger tracks, set in Settings. Ledgers without a type are expenses.
+const LEDGER_TYPES = [
+  { id: 'income', label: 'Income' },
+  { id: 'expenses', label: 'Expenses' },
+];
+const ledgerTypeLabel = (ledger) => (LEDGER_TYPES.find((t) => t.id === (ledger.type || 'expenses')) || LEDGER_TYPES[1]).label;
+
+// Ledger names must be unique, ignoring capitals and extra spaces. Returns the clashing ledger, if any.
+const normaliseLedgerName = (name) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+const ledgerWithName = (ledgers, name, exceptId) =>
+  ledgers.find((l) => l.id !== exceptId && normaliseLedgerName(l.name) === normaliseLedgerName(name));
+
+function LoggerSwitcher({ open, loggers, activeLoggerId, onSelect, onCreate, newName, setNewName, error, focusNewName, onCancel }) {
   if (!open) return null;
   return (
     <div
@@ -538,8 +615,9 @@ function LoggerSwitcher({ open, loggers, activeLoggerId, onSelect, onCreate, new
         <p className="text-sm font-semibold mb-3" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
           Create a new ledger
         </p>
-        <div className="flex gap-2 mb-5">
+        <div className={`flex gap-2 ${error ? 'mb-2' : 'mb-5'}`}>
           <input
+            autoFocus={focusNewName}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && onCreate()}
@@ -551,6 +629,11 @@ function LoggerSwitcher({ open, loggers, activeLoggerId, onSelect, onCreate, new
             <Plus size={16} color="#0F1210" strokeWidth={3} />
           </button>
         </div>
+        {error && (
+          <p className="text-xs mb-5" style={{ color: '#F87171', fontFamily: 'Manrope' }}>
+            {error}
+          </p>
+        )}
         <p className="text-sm font-semibold mb-1" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
           Switch between existing ledgers
         </p>
@@ -620,8 +703,22 @@ function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', onCancel
   );
 }
 
-function CurrencyPicker({ open, value, onCancel, onSelect, title = 'Currency for this entry' }) {
+function CurrencyPicker({ open, value, onCancel, onSelect, title = 'Currency for this entry', intro }) {
+  const [query, setQuery] = useState('');
+  const selectedRef = useRef(null);
+
+  // Start each opening with no search, scrolled to the selected currency.
+  useEffect(() => {
+    if (!open) return;
+    setQuery('');
+    if (selectedRef.current) selectedRef.current.scrollIntoView({ block: 'nearest' });
+  }, [open]);
+
   if (!open) return null;
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? CURRENCIES.filter((c) => c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q))
+    : CURRENCIES;
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-6"
@@ -633,13 +730,37 @@ function CurrencyPicker({ open, value, onCancel, onSelect, title = 'Currency for
         style={{ background: '#171C19', border: '1px solid rgba(245,243,238,0.1)' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="text-sm font-semibold mb-3" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
+        <p className={`text-sm font-semibold ${intro ? 'mb-1' : 'mb-3'}`} style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
           {title}
         </p>
+        {intro && (
+          <p className="text-xs mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+            {intro}
+          </p>
+        )}
+        <div className="relative mb-2.5">
+          <Search size={14} color="#7C8883" className="absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && shown.length === 1 && onSelect(shown[0].code)}
+            enterKeyHint="search"
+            placeholder="Search e.g. dollar, USD, $"
+            aria-label="Search currencies"
+            className="app-input w-full rounded-xl pl-8 pr-3 py-2 text-sm outline-none"
+            style={inputStyle}
+          />
+        </div>
         <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto">
-          {CURRENCIES.map((c) => (
+          {shown.length === 0 && (
+            <p className="text-xs px-1 py-2" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+              No currency matches ‘{query.trim()}’.
+            </p>
+          )}
+          {shown.map((c) => (
             <button
               key={c.code}
+              ref={value === c.code ? selectedRef : undefined}
               onClick={() => onSelect(c.code)}
               className="flex items-center justify-between px-3 py-2.5 rounded-xl text-left"
               style={{
@@ -664,7 +785,7 @@ function CurrencyPicker({ open, value, onCancel, onSelect, title = 'Currency for
 const WALKTHROUGH_SLIDES = [
   {
     title: 'One app, many ledgers',
-    body: "Each ledger keeps its own entries - switch between ledgers any time. Multiple currencies are available.",
+    body: "Each ledger keeps its own entries - switch between ledgers any time. All currencies are supported.",
   },
   {
     title: 'Fast entry, few taps',
@@ -672,11 +793,11 @@ const WALKTHROUGH_SLIDES = [
   },
   {
     title: 'Your ledger, your totals',
-    body: 'Every entry lands in your ledger. Made for quick bookkeeping and tracking expenses - not to be used as a replacement for accounting.',
+    body: 'Every entry lands in your ledger. Made for quick bookkeeping and tracking expenses / income - not to be used as a replacement for accounting.',
   },
 ];
 
-function Walkthrough({ open, step, setStep, onDismiss }) {
+function Walkthrough({ open, step, setStep, onDismiss, doneLabel = 'Get started' }) {
   if (!open) return null;
   const slide = WALKTHROUGH_SLIDES[step];
   const isLast = step === WALKTHROUGH_SLIDES.length - 1;
@@ -724,7 +845,7 @@ function Walkthrough({ open, step, setStep, onDismiss }) {
             className="flex-1 py-3 rounded-2xl text-sm font-semibold"
             style={{ background: '#01A99D', color: '#0F1210', fontFamily: 'Manrope' }}
           >
-            {isLast ? 'Get started' : 'Next'}
+            {isLast ? doneLabel : 'Next'}
           </button>
         </div>
 
@@ -756,12 +877,49 @@ const maskEmail = (address) => {
 const inputStyle = { background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE', fontFamily: 'Manrope' };
 
 // Two steps: enter an email, then the 6-digit code "sent" to it. Calls onVerified with the lower-cased email.
-function EmailCodeForm({ heading, intro, validateEmail, onVerified, onCancel }) {
+// Limits on the 6-digit codes (a real backend would enforce these too).
+const RESEND_WAIT_MS = 60 * 1000; // between codes to the same email
+const CODE_LIFETIME_MS = 10 * 60 * 1000;
+const MAX_CODE_TRIES = 5; // wrong guesses before a new code is needed
+
+// Two steps: enter an email, then the 6-digit code "sent" to it. Calls onVerified with the lower-cased email.
+// neutral: never says whether the email has an account (used for signing in), so nobody can use the
+// form to find out who uses the app. canReceiveCode says whether a code would really arrive.
+function EmailCodeForm({ heading, intro, validateEmail, onVerified, onCancel, neutral = false, canReceiveCode = () => true }) {
   const [step, setStep] = useState('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
-  const [sentCode, setSentCode] = useState('');
+  const [codeAddress, setCodeAddress] = useState(''); // where the current code went
+  const [sentCode, setSentCode] = useState(null); // null when no code would arrive
+  const [sentAt, setSentAt] = useState(0);
+  const [wrongTries, setWrongTries] = useState(0);
+  const [lastSent, setLastSent] = useState({}); // email -> when its last code was sent
+  const [now, setNow] = useState(Date.now());
   const [error, setError] = useState('');
+
+  const waitFor = (address, at) => Math.max(0, Math.ceil(((lastSent[address] || 0) + RESEND_WAIT_MS - at) / 1000));
+  const resendWait = waitFor(codeAddress, now);
+  const triesUsedUp = wrongTries >= MAX_CODE_TRIES;
+
+  // Ticks the "Resend code (42s)" countdown.
+  useEffect(() => {
+    if (step !== 'code' || resendWait === 0) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [step, resendWait > 0]);
+
+  const send = (address) => {
+    const at = Date.now();
+    setLastSent((prev) => ({ ...prev, [address]: at }));
+    setNow(at);
+    setSentCode(canReceiveCode(address) ? String(Math.floor(100000 + Math.random() * 900000)) : null);
+    setSentAt(at);
+    setWrongTries(0);
+    setCode('');
+    setCodeAddress(address);
+    setError('');
+    setStep('code');
+  };
 
   const sendCode = () => {
     const address = email.trim().toLowerCase();
@@ -774,18 +932,36 @@ function EmailCodeForm({ heading, intro, validateEmail, onVerified, onCancel }) 
       setError(problem);
       return;
     }
-    setError('');
-    setCode('');
-    setSentCode(String(Math.floor(100000 + Math.random() * 900000)));
-    setStep('code');
+    const wait = waitFor(address, Date.now());
+    if (wait > 0) {
+      if (address === codeAddress) {
+        // Same email again within the wait: go back to its code rather than sending another.
+        setError('');
+        setStep('code');
+      } else {
+        setError(`Wait ${wait}s before requesting another code for this email.`);
+      }
+      return;
+    }
+    send(address);
   };
 
   const verify = () => {
-    if (code !== sentCode) {
-      setError('That code isn’t right. Check it and try again.');
+    if (triesUsedUp) {
+      setError('Too many wrong codes. Tap ‘Resend code’ to get a new one.');
       return;
     }
-    onVerified(email.trim().toLowerCase());
+    if (sentCode && Date.now() - sentAt > CODE_LIFETIME_MS) {
+      setError('That code has expired. Tap ‘Resend code’ to get a new one.');
+      return;
+    }
+    if (!sentCode || code !== sentCode) {
+      const tries = wrongTries + 1;
+      setWrongTries(tries);
+      setError(tries >= MAX_CODE_TRIES ? 'Too many wrong codes. Tap ‘Resend code’ to get a new one.' : 'That code isn’t right. Check it and try again.');
+      return;
+    }
+    onVerified(codeAddress);
   };
 
   return (
@@ -802,7 +978,10 @@ function EmailCodeForm({ heading, intro, validateEmail, onVerified, onCancel }) 
             type="email"
             autoFocus
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setError('');
+            }}
             onKeyDown={(e) => e.key === 'Enter' && sendCode()}
             enterKeyHint="send"
             autoComplete="email"
@@ -814,10 +993,24 @@ function EmailCodeForm({ heading, intro, validateEmail, onVerified, onCancel }) 
       ) : (
         <>
           <p className="text-xs mb-2" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
-            Enter the 6-digit code that was sent to <span style={{ color: '#F5F3EE' }}>{email.trim().toLowerCase()}</span>.
+            {neutral ? (
+              <>
+                If <span style={{ color: '#F5F3EE' }}>{codeAddress}</span> is linked to an account, we have sent a 6-digit code to it.
+              </>
+            ) : (
+              <>
+                Enter the 6-digit code that was sent to <span style={{ color: '#F5F3EE' }}>{codeAddress}</span>.
+              </>
+            )}
           </p>
           <p className="text-[11px] mb-3 rounded-lg px-2.5 py-1.5" style={{ color: '#01A99D', background: 'rgba(1,169,157,0.08)', fontFamily: 'Manrope' }}>
-            Prototype: no email is sent. Your code is <span className="mono-num font-bold">{sentCode}</span>.
+            {sentCode ? (
+              <>
+                Prototype: no email is sent. Your code is <span className="mono-num font-bold">{sentCode}</span>.
+              </>
+            ) : (
+              'Prototype: this email isn’t linked to an account, so no code would arrive.'
+            )}
           </p>
           <input
             autoFocus
@@ -842,8 +1035,13 @@ function EmailCodeForm({ heading, intro, validateEmail, onVerified, onCancel }) 
             >
               Use a different email
             </button>
-            <button onClick={sendCode} className="text-[11px] underline underline-offset-2" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
-              Resend code
+            <button
+              onClick={() => send(codeAddress)}
+              disabled={resendWait > 0}
+              className="text-[11px] underline underline-offset-2 disabled:no-underline"
+              style={{ color: resendWait > 0 ? 'rgba(124,136,131,0.6)' : '#7C8883', fontFamily: 'Manrope' }}
+            >
+              {resendWait > 0 ? `Resend code (${resendWait}s)` : 'Resend code'}
             </button>
           </div>
         </>
@@ -861,7 +1059,7 @@ function EmailCodeForm({ heading, intro, validateEmail, onVerified, onCancel }) 
         )}
         <button
           onClick={step === 'email' ? sendCode : verify}
-          disabled={step === 'email' ? !email.trim() : code.length !== 6}
+          disabled={step === 'email' ? !email.trim() : code.length !== 6 || triesUsedUp}
           className="flex-1 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40"
           style={{ background: '#01A99D', color: '#0F1210', fontFamily: 'Manrope' }}
         >
@@ -883,16 +1081,69 @@ function EmailCodeModal({ open, onCancel, ...formProps }) {
   );
 }
 
-// Shown instead of the app when accounts exist on this device but nobody is signed in.
-// People can sign in to an existing account or start over with a new one.
-function SignInScreen({ accounts, emailInUse, onSignIn, onCreateAccount, onOpenDemo }) {
-  const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
+// Shown instead of the real app whenever nobody is signed in: sign up (the default on a device with no
+// accounts yet, right after the intro screens) or sign in.
+function AuthScreen({ accounts, emailInUse, onSignIn, onCreateAccount, onOpenDemo, onViewIntro }) {
+  const hasAccounts = accounts.length > 0;
+  const [mode, setMode] = useState(hasAccounts ? 'signin' : 'signup');
   const linked = accounts.flatMap((a) => a.emails.map((e) => maskEmail(e.address)));
+
+  // The demo is the low-commitment way in, so it gets a card of its own rather than a small link:
+  // seeing the app with real-looking data is what convinces people to give their email.
+  const otherLinks = (main, showIntroLink = false) => (
+    <>
+      <div className="flex items-center gap-2 mt-5 text-xs" style={{ fontFamily: 'Manrope' }}>
+        {main}
+        {showIntroLink && onViewIntro && (
+          <>
+            <span aria-hidden="true" style={{ color: '#7C8883' }}>·</span>
+            <button onClick={onViewIntro} className="underline underline-offset-2" style={{ color: '#7C8883' }}>
+              View the intro again
+            </button>
+          </>
+        )}
+      </div>
+      {onOpenDemo && (
+        <>
+          <div className="w-full flex items-center gap-3 my-4" aria-hidden="true">
+            <div className="flex-1 h-px" style={{ background: 'rgba(245,243,238,0.1)' }} />
+            <span className="text-[11px]" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+              or
+            </span>
+            <div className="flex-1 h-px" style={{ background: 'rgba(245,243,238,0.1)' }} />
+          </div>
+          <button
+            onClick={onOpenDemo}
+            className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left transition-colors hover:bg-[rgba(1,169,157,0.14)]"
+            style={{ background: 'rgba(1,169,157,0.08)', border: '1px solid rgba(1,169,157,0.35)', fontFamily: 'Manrope' }}
+          >
+            <span
+              className="flex items-center justify-center rounded-full shrink-0"
+              style={{ width: '40px', height: '40px', background: 'rgba(1,169,157,0.18)' }}
+            >
+              <Rocket size={18} color="#01A99D" />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm font-semibold" style={{ color: '#F5F3EE' }}>
+                Try the demo first
+              </span>
+              <span className="block text-xs mt-0.5 leading-snug" style={{ color: '#7C8883' }}>
+                Explore a demo version <strong>where an imaginary user has used the app for 3 years</strong>. No sign-up or email needed.
+              </span>
+            </span>
+            <ChevronRight size={18} color="#01A99D" className="shrink-0" />
+          </button>
+        </>
+      )}
+    </>
+  );
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-6" style={{ background: '#0F1210' }}>
+    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: '#0F1210' }}>
+      <div className="min-h-full flex items-center justify-center px-6 py-10">
       <div className="w-full max-w-xs flex flex-col items-center">
         <p className="text-lg font-bold mb-6" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
-          {mode === 'signin' ? 'Welcome back' : 'Start afresh'}
+          {mode === 'signin' ? 'Welcome back' : hasAccounts ? 'Start afresh' : 'Welcome'}
         </p>
         {mode === 'signin' ? (
           <>
@@ -900,51 +1151,135 @@ function SignInScreen({ accounts, emailInUse, onSignIn, onCreateAccount, onOpenD
               key="signin"
               heading="Sign in"
               intro="Use any email that is linked to your account."
-              validateEmail={(address) => (emailInUse(address) ? null : 'That email is not linked to an account.')}
+              neutral
+              canReceiveCode={emailInUse}
               onVerified={onSignIn}
             />
-            <p className="w-full text-[11px] mt-3 text-center" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
-              Linked: {linked.join(', ')}
-            </p>
-            <div className="flex items-center gap-2 mt-5 text-xs" style={{ fontFamily: 'Manrope' }}>
+            {hasAccounts && (
+              <p className="w-full text-[11px] mt-3 text-center" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+                Linked: {linked.join(', ')}
+              </p>
+            )}
+            {otherLinks(
               <button onClick={() => setMode('signup')} className="underline underline-offset-2" style={{ color: '#01A99D' }}>
                 Create a new account
               </button>
-              {onOpenDemo && (
-                <>
-                  <span aria-hidden="true" style={{ color: '#7C8883' }}>·</span>
-                  <button onClick={onOpenDemo} className="underline underline-offset-2" style={{ color: '#7C8883' }}>
-                    Try the demo
-                  </button>
-                </>
-              )}
-            </div>
+            )}
           </>
         ) : (
-          <EmailCodeForm
-            key="signup"
-            heading="Create a new account"
-            intro="Start over with a different email. Your other accounts and their ledgers won’t be affected."
-            validateEmail={(address) => (emailInUse(address) ? 'That email is already linked to an account. Sign in with it instead.' : null)}
-            onVerified={onCreateAccount}
-            onCancel={() => setMode('signin')}
-          />
-        )}
-        {mode === 'signup' && (
-          <div className="flex items-center gap-2 mt-5 text-xs" style={{ fontFamily: 'Manrope' }}>
-            <button onClick={() => setMode('signin')} className="underline underline-offset-2" style={{ color: '#01A99D' }}>
-              Sign in instead
-            </button>
-            {onOpenDemo && (
-              <>
-                <span aria-hidden="true" style={{ color: '#7C8883' }}>·</span>
-                <button onClick={onOpenDemo} className="underline underline-offset-2" style={{ color: '#7C8883' }}>
-                  Try the demo
-                </button>
-              </>
+          <>
+            <EmailCodeForm
+              key="signup"
+              heading={hasAccounts ? 'Create a new account' : 'Create an account'}
+              intro={
+                hasAccounts
+                  ? 'Start over with a different email and a new account. Your other accounts and their ledgers won’t be affected.'
+                  : 'Enter your email. We will send a code to it.'
+              }
+              validateEmail={(address) => (emailInUse(address) ? 'That email is already linked to an account. Sign in with it instead.' : null)}
+              onVerified={onCreateAccount}
+              onCancel={hasAccounts ? () => setMode('signin') : undefined}
+            />
+            {otherLinks(
+              <button onClick={() => setMode('signin')} className="underline underline-offset-2" style={{ color: '#01A99D' }}>
+                Sign in instead
+              </button>,
+              true
             )}
-          </div>
+          </>
         )}
+      </div>
+      </div>
+    </div>
+  );
+}
+
+// Copies text to the clipboard, falling back to the older copy command where the Clipboard API is unavailable.
+const copyToClipboard = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    try {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand('copy');
+      area.remove();
+      return ok;
+    } catch (err) {
+      return false;
+    }
+  }
+};
+
+// The demo has no Settings screen; this explains what the real one offers instead.
+function DemoSettingsModal({ open, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef(null);
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
+  if (!open) return null;
+
+  const copyEmail = async () => {
+    if (!(await copyToClipboard(FEEDBACK_EMAIL))) return;
+    setCopied(true);
+    clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(false), 2000);
+  };
+
+  const items = [
+    <>
+      Send feedback to the developer,{' '}
+      <button onClick={copyEmail} className="underline underline-offset-2" style={{ color: '#01A99D' }}>
+        {FEEDBACK_EMAIL}
+      </button>
+      <button
+        onClick={copyEmail}
+        aria-label={copied ? 'Email copied' : 'Copy email'}
+        className="inline-flex align-middle ml-1 -mt-0.5"
+      >
+        {copied ? <Check size={12} color="#01A99D" strokeWidth={3} /> : <Copy size={12} color="#01A99D" />}
+      </button>
+      {copied && <span style={{ color: '#01A99D' }}> (copied)</span>}
+    </>,
+    `Sign up and link up to ${MAX_EMAILS} emails.`,
+    'Rename or delete ledgers.',
+    'Change your default currency.',
+    'Revisit the introductory walkthrough or this demo.',
+    'Download your ledgers as a spreadsheet (CSV) to analyse them in Excel, Google Sheets or an AI assistant.',
+    'Sign out or delete your account.',
+  ];
+
+  return (
+    // Above every toast, including the demo's "can't add entries" toast (z-index 95).
+    <div className="fixed inset-0 flex items-center justify-center px-6" style={{ background: 'rgba(0,0,0,0.6)', zIndex: 100 }} onClick={onClose}>
+      <div
+        className="w-full max-w-xs rounded-2xl p-5"
+        style={{ background: '#171C19', border: '1px solid rgba(245,243,238,0.1)', fontFamily: 'Manrope' }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <p className="text-xs mb-2" style={{ color: '#01A99D' }}>
+          This page is view-only in the demo. After you close this box, click ‘×’ at the top-right to exit Settings.
+        </p>
+        <p className="text-xs mb-2" style={{ color: '#F5F3EE' }}>
+          In the real app’s Settings, you can:
+        </p>
+        <ul className="flex flex-col gap-1.5 mb-5 text-xs" style={{ color: '#7C8883', lineHeight: 1.45 }}>
+          {items.map((item, i) => (
+            <li key={i} className="flex gap-2">
+              <span aria-hidden="true" className="shrink-0 rounded-full" style={{ width: 4, height: 4, marginTop: 6.7, background: '#01A99D' }} />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+        <button onClick={onClose} className="w-full py-2.5 rounded-xl text-sm font-medium" style={{ background: 'rgba(245,243,238,0.06)', color: '#F5F3EE' }}>
+          Close
+        </button>
       </div>
     </div>
   );
@@ -956,33 +1291,39 @@ function SettingsScreen({
   editingLoggerId,
   loggerNameDraft,
   setLoggerNameDraft,
+  renameError,
   onStartRename,
   onSaveRename,
   onRequestDeleteLedger,
+  onSetLedgerType,
   onReplayWalkthrough,
-  onOpenExport,
-  onOpenImport,
+  onOpenLedgerDownload,
+  onOpenDemo,
   onRequestDeleteAccount,
   onOpenFeedback,
   demo,
   account,
-  onCreateAccount,
   onAddEmail,
   onMakePrimary,
   onRequestRemoveEmail,
   onRequestSignOut,
+  userCurrency,
+  onChangeUserCurrency,
 }) {
   const rowStyle = { background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE', fontFamily: 'Manrope' };
   return (
     <div className="fixed inset-0 z-40 flex justify-center" style={{ background: '#0A0C0B' }}>
-      <div className="w-full max-w-sm flex flex-col" style={{ background: '#0F1210', minHeight: '100dvh' }}>
+      <div
+        className="w-full max-w-sm flex flex-col"
+        style={{ background: '#0F1210', minHeight: '100dvh', paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         <PerfEdge />
         <div className="px-5">
           <TopBar
             title="Settings"
             stepLabel="Account"
             left={
-              <button onClick={onOpenFeedback} aria-label="Send feedback" className="w-8 h-8 flex items-center justify-center rounded-full" style={{ background: 'rgba(245,243,238,0.06)' }}>
+              <button onClick={onOpenFeedback} disabled={demo} aria-label="Send feedback" className="w-8 h-8 flex items-center justify-center rounded-full" style={{ background: 'rgba(245,243,238,0.06)' }}>
                 <span style={{ fontSize: '16px', lineHeight: 1 }}>🌷</span>
               </button>
             }
@@ -995,31 +1336,15 @@ function SettingsScreen({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 pb-10">
+          {/* In the demo, Settings is shown to look at only: a disabled fieldset turns off every control inside it. */}
+          <fieldset disabled={demo} className="min-w-0 m-0 p-0 border-0">
           {/* Account */}
           <p className="text-xs uppercase tracking-[0.15em] mb-2 mt-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>Account</p>
-          {demo ? (
-            <p className="text-[11px] mb-8" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
-              Accounts aren’t available in the demo.
-            </p>
-          ) : !account ? (
             <>
-              <p className="text-[11px] mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
-                Create an account to protect your ledgers. Link up to {MAX_EMAILS} emails so you can still sign in if you lose access to one of them.
+              <p className="text-[11.5px] mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+                In case you lose access to an email, you can link up to {MAX_EMAILS} emails (you can sign in with any of them).
               </p>
-              <button
-                onClick={onCreateAccount}
-                className="w-full flex items-center justify-center gap-2 rounded-2xl px-4 py-3 mb-8 text-sm font-semibold"
-                style={{ background: '#01A99D', color: '#0F1210', fontFamily: 'Manrope' }}
-              >
-                <Mail size={15} /> Create account
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="text-[11px] mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
-                You can sign in with any of these emails (you can link up to {MAX_EMAILS} in case you lose access to any of them).
-              </p>
-              <div className="flex flex-col gap-2 mb-2">
+              <div className="flex flex-col gap-2 mb-8">
                 {account.emails.map((e) => (
                   <div key={e.address} className="flex items-center gap-2 p-3 rounded-2xl" style={rowStyle}>
                     <span className="flex-1 min-w-0 text-sm truncate">{e.address}</span>
@@ -1039,89 +1364,136 @@ function SettingsScreen({
                     )}
                   </div>
                 ))}
+                {account.emails.length < MAX_EMAILS && (
+                  <button onClick={onAddEmail} className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium" style={rowStyle}>
+                    <Plus size={15} color="#7C8883" /> Add another email ({account.emails.length} of {MAX_EMAILS})
+                  </button>
+                )}
               </div>
-              {account.emails.length < MAX_EMAILS && (
-                <button onClick={onAddEmail} className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 mb-2 text-sm font-medium" style={rowStyle}>
-                  <Plus size={15} color="#7C8883" /> Add another email ({account.emails.length} of {MAX_EMAILS})
-                </button>
-              )}
-              <button onClick={onRequestSignOut} className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 mb-8 text-sm font-medium" style={rowStyle}>
-                <LogOut size={15} color="#7C8883" /> Sign out
-              </button>
             </>
-          )}
 
           {/* Ledgers */}
           <p className="text-xs uppercase tracking-[0.15em] mb-2" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>Ledgers</p>
           <div className="flex flex-col gap-2 mb-8">
             {loggers.map((l) => (
-              <div key={l.id} className="flex items-center gap-2 p-3 rounded-2xl" style={{ background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)' }}>
-                {editingLoggerId === l.id ? (
-                  <>
-                    <input
-                      value={loggerNameDraft}
-                      onChange={(e) => setLoggerNameDraft(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && onSaveRename()}
-                      autoFocus
-                      className="flex-1 bg-transparent outline-none text-sm"
-                      style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}
-                    />
-                    <button onClick={onSaveRename} className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: '#01A99D', color: '#0F1210' }}>
-                      Save
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="flex-1 text-sm" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>{l.name}</span>
-                    <button onClick={() => onStartRename(l)} aria-label={`Rename ${l.name}`}>
-                      <Pencil size={14} color="#7C8883" />
-                    </button>
-                    <button onClick={() => onRequestDeleteLedger(l.id)} aria-label={`Delete ${l.name}`}>
-                      <Trash2 size={14} color="#7C8883" />
-                    </button>
-                  </>
+              <div key={l.id}>
+                <div className="flex items-center gap-2 p-3 rounded-2xl" style={{ background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)' }}>
+                  {editingLoggerId === l.id ? (
+                    <>
+                      <input
+                        value={loggerNameDraft}
+                        onChange={(e) => setLoggerNameDraft(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && onSaveRename()}
+                        autoFocus
+                        className="flex-1 bg-transparent outline-none text-sm"
+                        style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}
+                      />
+                      <button onClick={onSaveRename} className="text-xs font-semibold px-2.5 py-1 -my-0.5 rounded-full" style={{ background: '#01A99D', color: '#0F1210' }}>
+                        Save
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 min-w-0 truncate text-sm" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>{l.name}</span>
+                      {/* What the ledger tracks. Each option is the same size as the Save button. */}
+                      <div
+                        role="radiogroup"
+                        aria-label={`What ${l.name} tracks`}
+                        className="flex shrink-0 rounded-full -my-0.5"
+                        style={{ background: 'rgba(245,243,238,0.06)' }}
+                      >
+                        {LEDGER_TYPES.map((t) => {
+                          const on = (l.type || 'expenses') === t.id;
+                          return (
+                            <button
+                              key={t.id}
+                              role="radio"
+                              aria-checked={on}
+                              onClick={() => onSetLedgerType(l.id, t.id)}
+                              className="text-xs font-semibold px-2.5 py-1 rounded-full"
+                              style={{ background: on ? '#01A99D' : 'transparent', color: on ? '#0F1210' : '#7C8883', fontFamily: 'Manrope' }}
+                            >
+                              {t.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <button onClick={() => onStartRename(l)} aria-label={`Rename ${l.name}`}>
+                        <Pencil size={14} color="#7C8883" />
+                      </button>
+                      <button onClick={() => onRequestDeleteLedger(l.id)} aria-label={`Delete ${l.name}`}>
+                        <Trash2 size={14} color="#7C8883" />
+                      </button>
+                    </>
+                  )}
+                </div>
+                {editingLoggerId === l.id && renameError && (
+                  <p className="text-xs mt-1.5 px-1" style={{ color: '#F87171', fontFamily: 'Manrope' }}>
+                    {renameError}
+                  </p>
                 )}
               </div>
             ))}
           </div>
 
-          {/* Help */}
-          <p className="text-xs uppercase tracking-[0.15em] mb-2" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>Help</p>
-          <p className="text-[11px] mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
-            Tip: Double-tap to delete items or nullify entries.
+          {/* Currency */}
+          <p className="text-xs uppercase tracking-[0.15em] mb-2" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>Default currency</p>
+          <p className="text-[11.5px] mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+            New ledgers start with this currency. Existing ledgers keep the currency that you have set for each of them.
           </p>
           <button
-            onClick={onReplayWalkthrough}
-            className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 mb-8 text-sm font-medium"
-            style={{ background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE', fontFamily: 'Manrope' }}
+            onClick={onChangeUserCurrency}
+            className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 mb-8 text-sm font-medium text-left"
+            style={rowStyle}
           >
-            <RotateCcw size={15} color="#7C8883" /> See the walkthrough again
+            <span className="flex-1 min-w-0 truncate">{currencyOf(userCurrency).name}</span>
+            <span className="mono-num text-xs shrink-0" style={{ color: '#7C8883' }}>
+              {userCurrency} · {currencyOf(userCurrency).symbol}
+            </span>
+            <ChevronRight size={15} color="#7C8883" className="shrink-0" />
           </button>
+
+          {/* Tour */}
+          <p className="text-xs uppercase tracking-[0.15em] mb-2" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>Revisit the tour</p>
+          <div className="flex flex-col gap-2 mb-8">
+            <button
+              onClick={onReplayWalkthrough}
+              className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium"
+              style={{ background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE', fontFamily: 'Manrope' }}
+            >
+              <RotateCcw size={15} color="#7C8883" /> See the walkthrough again
+            </button>
+            {onOpenDemo && (
+              <button
+                onClick={onOpenDemo}
+                className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium"
+                style={{ background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE', fontFamily: 'Manrope' }}
+              >
+                <Rocket size={15} color="#7C8883" /> View the demo
+              </button>
+            )}
+          </div>
 
           {/* Data */}
           <p className="text-xs uppercase tracking-[0.15em] mb-2" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>Your data</p>
-          <p className="text-[11px] mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
-            Download a backup to restore your data manually if you move to another device.
+          <p className="text-[11.5px] mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+            Download your ledgers as a spreadsheet (CSV) to analyse them in Excel, Google Sheets or an AI assistant.
           </p>
-          <div className="flex flex-col gap-2 mb-8">
-            <button
-              onClick={onOpenExport}
-              className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium"
-              style={{ background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE', fontFamily: 'Manrope' }}
-            >
-              <Download size={15} color="#7C8883" /> Download backup file
-            </button>
-            <button
-              onClick={onOpenImport}
-              className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium"
-              style={{ background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE', fontFamily: 'Manrope' }}
-            >
-              <Upload size={15} color="#7C8883" /> Restore from backup file
-            </button>
-          </div>
+          <button
+            onClick={onOpenLedgerDownload}
+            className="w-full flex items-center gap-2 rounded-2xl px-4 py-3 mb-8 text-sm font-medium"
+            style={{ background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE', fontFamily: 'Manrope' }}
+          >
+            <Download size={15} color="#7C8883" /> Download ledgers
+          </button>
 
           {/* Danger zone */}
           <p className="text-xs uppercase tracking-[0.15em] mb-2" style={{ color: '#F87171', fontFamily: 'Manrope' }}>Danger zone</p>
+          {account && (
+            <button onClick={onRequestSignOut} className="w-full flex items-center justify-center gap-2 rounded-2xl px-4 py-3 mb-2 text-sm font-medium" style={rowStyle}>
+              <LogOut size={15} color="#7C8883" /> Sign out
+            </button>
+          )}
           <button
             onClick={onRequestDeleteAccount}
             className="w-full flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold"
@@ -1129,8 +1501,11 @@ function SettingsScreen({
           >
             <AlertTriangle size={15} /> Delete account
           </button>
+          </fieldset>
         </div>
       </div>
+      {/* Demo: Settings stays dimmed to show it's look-only. Taps and scrolling pass through it. */}
+      {demo && <div aria-hidden="true" className="fixed inset-0 pointer-events-none" style={{ background: 'rgba(0,0,0,0.4)' }} />}
     </div>
   );
 }
@@ -1153,17 +1528,75 @@ function Chip({ label, active, onClick, onDoubleClick }) {
   );
 }
 
-function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStorage, accountApi }) {
+// ---- Toasts: one look for every message that pops up in the middle of the screen ----
+// bullets: the lines, each shown with a teal dot. A line in `accent` is drawn in teal.
+// onDismiss makes the toast tappable; withClose adds the ×. leaving plays the fade-out.
+function Toast({ bullets, accent = [], onDismiss, withClose = false, leaving = false, zIndex = 95, label = 'Dismiss' }) {
+  const Box = onDismiss ? 'button' : 'div';
+  return (
+    <div
+      className={`fixed left-1/2 w-full max-w-xs px-4 tip-toast${leaving ? ' leaving' : ''}`}
+      style={{ top: '50%', transform: 'translate(-50%, -50%)', zIndex }}
+      role="status"
+    >
+      <Box
+        {...(onDismiss ? { onClick: onDismiss, 'aria-label': label } : {})}
+        className={`w-full rounded-2xl ${withClose ? 'pl-4 pr-9' : 'px-4'} py-3 text-[13px] text-left shadow-2xl relative block`}
+        style={{ background: '#171C19', border: '1px solid rgba(1,169,157,0.4)', color: '#F5F3EE', fontFamily: 'Manrope', lineHeight: 1.45 }}
+      >
+        <ul className="flex flex-col gap-1.5">
+          {bullets.map((s, i) => (
+            <li key={i} className="flex gap-2" style={accent.includes(s) ? { color: '#01A99D' } : undefined}>
+              <span aria-hidden="true" className="shrink-0 rounded-full" style={{ width: 4, height: 4, marginTop: 7.5, background: '#01A99D' }} />
+              <span>{s}</span>
+            </li>
+          ))}
+        </ul>
+        {withClose && <X size={14} color="#7C8883" style={{ position: 'absolute', top: 12, right: 12 }} />}
+      </Box>
+    </div>
+  );
+}
+
+// A toast that closes itself after `duration`, fading out the same way it faded in (0.25s).
+// show(message) opens it, hide() fades it out now, clear() removes it instantly.
+function useTimedToast(duration = 3500) {
+  const [message, setMessage] = useState(null);
+  const [leaving, setLeaving] = useState(false);
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const hide = () => {
+    clearTimeout(timer.current);
+    setLeaving(true);
+    timer.current = setTimeout(() => {
+      setMessage(null);
+      setLeaving(false);
+    }, 250);
+  };
+  const show = (text) => {
+    clearTimeout(timer.current);
+    setMessage(text);
+    setLeaving(false);
+    timer.current = setTimeout(hide, duration);
+  };
+  const clear = () => {
+    clearTimeout(timer.current);
+    setMessage(null);
+    setLeaving(false);
+  };
+  return { message, leaving, show, hide, clear };
+}
+
+function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStorage, accountApi, focusSearchOnStart = false }) {
   // In demo mode everything reads from / writes to a throwaway in-memory store, never the real data.
-  // Otherwise the storage belongs to the signed-in account (see LedgerLog at the bottom).
+  // Otherwise the storage belongs to the signed-in account (see Ledgerly at the bottom).
   const demoStorageRef = useRef(null);
   if (demo && !demoStorageRef.current) demoStorageRef.current = makeMemoryStorage(buildDemoSeed());
   const storage = demo ? demoStorageRef.current : accountStorage || window.storage;
   // In the demo, seen tips live in its throwaway store, so every fresh demo shows its tips again.
-  const tipsKey = 'ledgerlog-seen-tips';
+  const tipsKey = 'ledgerly-seen-tips';
 
-  const [demoToast, setDemoToast] = useState(false);
-  const demoToastTimer = useRef(null);
+  const demoToast = useTimedToast(); // the demo's "can't add entries" notice
 
   const [loaded, setLoaded] = useState(false);
   const [screen, setScreen] = useState(1);
@@ -1172,10 +1605,12 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
 
   const [loggers, setLoggers] = useState([{ id: 'default', name: 'Ledger 1' }]);
   const [activeLoggerId, setActiveLoggerId] = useState('default');
-  const [showLoggerSwitcher, setShowLoggerSwitcher] = useState(false);
+  const [showLoggerSwitcher, setShowLoggerSwitcher] = useState(false); // false | 'switch' | 'create' ('create' puts the cursor in the name box)
   const [newLoggerName, setNewLoggerName] = useState('');
+  const [newLoggerError, setNewLoggerError] = useState('');
 
-  const [defaultCurrency, setDefaultCurrency] = useState('NGN');
+  const [defaultCurrency, setDefaultCurrency] = useState('NGN'); // the open ledger's default
+  const [userCurrency, setUserCurrency] = useState(null); // chosen on first use; new ledgers start with it
   const [entryCurrency, setEntryCurrency] = useState('NGN');
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
 
@@ -1185,6 +1620,8 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [nullifyEntryId, setNullifyEntryId] = useState(null);
   const [showFeedback, setShowFeedback] = useState(false);
+  // When feedback goes to a form service (e.g. Formspree), show "sent" or "couldn't send" here.
+  const feedbackToast = useTimedToast();
   const [totalsView, setTotalsView] = useState('daily'); // 'daily' | 'summary'
   const [searchOpen, setSearchOpen] = useState(false);
   // Long lists render in chunks (more rows load as you scroll) so big ledgers stay snappy.
@@ -1206,15 +1643,13 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
   const [scrollToDay, setScrollToDay] = useState(null);
   const cursorRef = useRef(null);
   const itemSearchRef = useRef(null);
-  // Set on a first run of the real app, so closing the walkthrough puts the cursor in the item search.
-  const focusSearchAfterWalkthrough = useRef(false);
   const dayRefs = useRef({});
   const logScrollRef = useRef(null);
 
   const loadLoggerData = async (id, fallbackCurrency = 'NGN') => {
     const fallback = fallbackCurrency;
     try {
-      const res = await storage.get(`ledgerlog-items-${id}`, false);
+      const res = await storage.get(`ledgerly-items-${id}`, false);
       if (res && res.value) {
         const parsed = JSON.parse(res.value);
         setItems(Array.isArray(parsed) ? parsed : []);
@@ -1226,7 +1661,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
     }
 
     try {
-      const res2 = await storage.get(`ledgerlog-entries-${id}`, false);
+      const res2 = await storage.get(`ledgerly-entries-${id}`, false);
       if (res2 && res2.value) {
         const parsed2 = JSON.parse(res2.value);
         setEntries(Array.isArray(parsed2) ? parsed2 : []);
@@ -1238,7 +1673,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
     }
 
     try {
-      const res3 = await storage.get(`ledgerlog-currency-${id}`, false);
+      const res3 = await storage.get(`ledgerly-currency-${id}`, false);
       const cur = res3 && res3.value ? res3.value : fallback;
       setDefaultCurrency(cur);
       setEntryCurrency(cur);
@@ -1252,12 +1687,11 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
     (async () => {
       let seenWalkthrough = false;
       try {
-        const resW = await storage.get('ledgerlog-seen-walkthrough', false);
+        const resW = await storage.get('ledgerly-seen-walkthrough', false);
         seenWalkthrough = !!(resW && resW.value === 'true');
       } catch (e) {}
       if (!seenWalkthrough) {
         setShowWalkthrough(true);
-        if (!demo) focusSearchAfterWalkthrough.current = true;
       }
 
       let tipsSeen = null;
@@ -1277,7 +1711,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
       let activeId = 'default';
 
       try {
-        const res = await storage.get('ledgerlog-loggers', false);
+        const res = await storage.get('ledgerly-loggers', false);
         if (res && res.value) {
           const parsed = JSON.parse(res.value);
           if (Array.isArray(parsed) && parsed.length) loggersList = parsed;
@@ -1285,15 +1719,22 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
       } catch (e) {}
 
       try {
-        const res2 = await storage.get('ledgerlog-active-logger', false);
+        const res2 = await storage.get('ledgerly-active-logger', false);
         activeId = res2 && res2.value && loggersList.some((l) => l.id === res2.value) ? res2.value : loggersList[0].id;
       } catch (e) {
         activeId = loggersList[0].id;
       }
 
+      let savedUserCurrency = null;
+      try {
+        const resC = await storage.get('ledgerly-user-currency', false);
+        if (resC && resC.value) savedUserCurrency = resC.value;
+      } catch (e) {}
+      setUserCurrency(savedUserCurrency);
+
       setLoggers(loggersList);
       setActiveLoggerId(activeId);
-      await loadLoggerData(activeId);
+      await loadLoggerData(activeId, savedUserCurrency || 'NGN');
       setLoaded(true);
     })();
   }, []);
@@ -1302,6 +1743,11 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
 
   // ---- App-level settings, walkthrough, data portability ----
   const [showSettings, setShowSettings] = useState(false);
+  // Demo only: the "can't use Settings" pop-up shows each time Settings opens.
+  const [demoSettingsNotice, setDemoSettingsNotice] = useState(false);
+  useEffect(() => {
+    if (demo) setDemoSettingsNotice(showSettings);
+  }, [showSettings]);
 
   const [showWalkthrough, setShowWalkthrough] = useState(false);
   const [walkthroughStep, setWalkthroughStep] = useState(0);
@@ -1309,23 +1755,18 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
   const [ledgerPendingDelete, setLedgerPendingDelete] = useState(null);
   const [editingLoggerId, setEditingLoggerId] = useState(null);
   const [loggerNameDraft, setLoggerNameDraft] = useState('');
+  const [renameError, setRenameError] = useState('');
 
-  const [showImport, setShowImport] = useState(false);
-  const importFileRef = useRef(null);
-  const [importError, setImportError] = useState('');
+  const [showLedgerDownload, setShowLedgerDownload] = useState(false);
+  const [downloadSelection, setDownloadSelection] = useState([]); // ids of ledgers ticked for download
 
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
 
-  // ---- Account (prototype; real app only). The accounts themselves are managed by LedgerLog. ----
+  // ---- Account (prototype; real app only). The accounts themselves are managed by Ledgerly. ----
   const account = accountApi ? accountApi.account : null;
-  const [emailFlow, setEmailFlow] = useState(null); // 'signup' | 'add' | null
+  const [emailFlow, setEmailFlow] = useState(null); // 'add' while adding an email, otherwise null
   const [emailPendingRemove, setEmailPendingRemove] = useState(null);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
-
-  const createAccount = (address) => {
-    setEmailFlow(null);
-    accountApi.create(address);
-  };
 
   const addEmail = (address) => {
     setEmailFlow(null);
@@ -1360,6 +1801,27 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
     return true;
   };
 
+  // The first time someone reaches the price step, they pick their currency before anything else.
+  // Only for people who haven't logged anything yet, and never in the demo. It's recorded with the tips.
+  const [currencyPromptOpen, setCurrencyPromptOpen] = useState(false);
+  const needsCurrencyPrompt = () => !demo && seenTips && !seenTips.includes('currencyPrompt') && entries.length === 0;
+  const [showUserCurrencyPicker, setShowUserCurrencyPicker] = useState(false); // from Settings
+  // The user's currency: new ledgers start with it. Choosing it in Settings also means they won't be asked later.
+  const saveUserCurrency = (code) => {
+    setUserCurrency(code);
+    storage.set('ledgerly-user-currency', code, false).catch(() => {});
+    if (seenTips && !seenTips.includes('currencyPrompt')) markTipsSeen([...seenTips, 'currencyPrompt']);
+  };
+  const closeCurrencyPrompt = (code) => {
+    if (code) {
+      saveUserCurrency(code);
+      setDefaultCurrency(code); // and this ledger's default
+      setEntryCurrency(code);
+    }
+    setCurrencyPromptOpen(false);
+    showTip('price');
+  };
+
   useEffect(() => {
     if (!loaded) return;
     // Leaving a screen closes its tip.
@@ -1367,8 +1829,12 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
     if (showWalkthrough) return; // wait until the walkthrough is closed
     if (screen === 1) showTip('firstItem');
     else if (screen === 2) showTip('quantity');
-    else if (screen === 3) showTip('price');
-    else if (screen === 4 && entries.length > 0) showTip('ledger');
+    else if (screen === 3) {
+      if (needsCurrencyPrompt()) {
+        markTipsSeen([...seenTips, 'currencyPrompt']);
+        setCurrencyPromptOpen(true); // the price tip follows once a currency is chosen
+      } else showTip('price');
+    } else if (screen === 4 && entries.length > 0) showTip('ledger');
     else if (screen === 5) showTip('totals');
   }, [screen, loaded, showWalkthrough]);
 
@@ -1381,30 +1847,30 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
 
   useEffect(() => {
     if (!loaded) return;
-    storage.set('ledgerlog-loggers', JSON.stringify(loggers), false).catch(() => {});
+    storage.set('ledgerly-loggers', JSON.stringify(loggers), false).catch(() => {});
   }, [loggers, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
-    storage.set('ledgerlog-active-logger', activeLoggerId, false).catch(() => {});
+    storage.set('ledgerly-active-logger', activeLoggerId, false).catch(() => {});
   }, [activeLoggerId, loaded]);
 
   useEffect(() => {
     if (!loaded || isSwitchingLogger) return;
-    storage.set(`ledgerlog-items-${activeLoggerId}`, JSON.stringify(items), false).catch(() => {});
+    storage.set(`ledgerly-items-${activeLoggerId}`, JSON.stringify(items), false).catch(() => {});
   }, [items, loaded, activeLoggerId, isSwitchingLogger]);
 
   useEffect(() => {
     if (!loaded || isSwitchingLogger) return;
-    storage.set(`ledgerlog-entries-${activeLoggerId}`, JSON.stringify(entries), false).catch(() => {});
+    storage.set(`ledgerly-entries-${activeLoggerId}`, JSON.stringify(entries), false).catch(() => {});
   }, [entries, loaded, activeLoggerId, isSwitchingLogger]);
 
   useEffect(() => {
     if (!loaded || isSwitchingLogger) return;
-    storage.set(`ledgerlog-currency-${activeLoggerId}`, defaultCurrency, false).catch(() => {});
+    storage.set(`ledgerly-currency-${activeLoggerId}`, defaultCurrency, false).catch(() => {});
   }, [defaultCurrency, loaded, activeLoggerId, isSwitchingLogger]);
 
-  const switchLogger = async (id, fallbackCurrency = 'NGN') => {
+  const switchLogger = async (id, fallbackCurrency = userCurrency || 'NGN') => {
     if (id === activeLoggerId) {
       setShowLoggerSwitcher(false);
       return;
@@ -1425,8 +1891,14 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
   const createLogger = async () => {
     const name = newLoggerName.trim();
     if (!name) return;
+    const clash = ledgerWithName(loggers, name);
+    if (clash) {
+      setNewLoggerError(`You already have a ledger called '${clash.name}'.`);
+      return;
+    }
     const id = 'logger-' + Date.now();
-    const seedCurrency = defaultCurrency; // new ledgers start with the currently-active ledger's currency
+    // New ledgers start with the user's currency, or the open ledger's for people who never chose one.
+    const seedCurrency = userCurrency || defaultCurrency;
     setLoggers((prev) => [...prev, { id, name }]);
     setNewLoggerName('');
     await switchLogger(id, seedCurrency);
@@ -1436,13 +1908,13 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
   const dismissWalkthrough = () => {
     setShowWalkthrough(false);
     setWalkthroughStep(0);
-    storage.set('ledgerlog-seen-walkthrough', 'true', false).catch(() => {});
-    if (focusSearchAfterWalkthrough.current) {
-      focusSearchAfterWalkthrough.current = false;
-      // Focusing inside the tap that closes the walkthrough lets phones open the keyboard.
-      if (itemSearchRef.current) itemSearchRef.current.focus();
-    }
+    storage.set('ledgerly-seen-walkthrough', 'true', false).catch(() => {});
   };
+
+  // Straight after signing up, the cursor waits in the item search so the keyboard is ready.
+  useEffect(() => {
+    if (loaded && focusSearchOnStart && itemSearchRef.current) itemSearchRef.current.focus();
+  }, [loaded]);
 
   const replayWalkthrough = () => {
     // Settings stays open underneath (the walkthrough covers it), so closing the walkthrough returns there.
@@ -1454,6 +1926,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
   const startRenameLedger = (l) => {
     setEditingLoggerId(l.id);
     setLoggerNameDraft(l.name);
+    setRenameError('');
   };
 
   const saveRenameLedger = () => {
@@ -1462,19 +1935,24 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
       setEditingLoggerId(null);
       return;
     }
+    const clash = ledgerWithName(loggers, name, editingLoggerId); // renaming to its own name is fine
+    if (clash) {
+      setRenameError(`You already have a ledger called '${clash.name}'.`);
+      return;
+    }
     setLoggers((prev) => prev.map((l) => (l.id === editingLoggerId ? { ...l, name } : l)));
     setEditingLoggerId(null);
   };
 
   const deleteLedgerKeys = async (id) => {
     try {
-      await storage.delete(`ledgerlog-items-${id}`, false);
+      await storage.delete(`ledgerly-items-${id}`, false);
     } catch (e) {}
     try {
-      await storage.delete(`ledgerlog-entries-${id}`, false);
+      await storage.delete(`ledgerly-entries-${id}`, false);
     } catch (e) {}
     try {
-      await storage.delete(`ledgerlog-currency-${id}`, false);
+      await storage.delete(`ledgerly-currency-${id}`, false);
     } catch (e) {}
   };
 
@@ -1500,9 +1978,10 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
       await deleteLedgerKeys(l.id);
     }
     const keysToClear = [
-      'ledgerlog-loggers',
-      'ledgerlog-active-logger',
-      'ledgerlog-seen-walkthrough',
+      'ledgerly-loggers',
+      'ledgerly-active-logger',
+      'ledgerly-seen-walkthrough',
+      'ledgerly-user-currency',
     ];
     for (const key of keysToClear) {
       try {
@@ -1517,6 +1996,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
     setEntries([]);
     setDefaultCurrency('NGN');
     setEntryCurrency('NGN');
+    setUserCurrency(null);
     setShowDeleteAccount(false);
     setShowSettings(false);
     setScreen(1);
@@ -1527,108 +2007,75 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
     setQtyIsDefault(true);
     setActiveTip(null);
     markTipsSeen([]); // a fresh start gets the tips again
-    setWalkthroughStep(0);
-    setShowWalkthrough(true);
-    if (!demo) focusSearchAfterWalkthrough.current = true;
-    if (account) accountApi.deleteActive(); // forget the account too; with others on this device, sign-in shows next
+    // Forget the account too. The sign-in screen shows next, or the intro and sign-up if no accounts remain.
+    if (account) accountApi.deleteActive();
   };
 
-  // ---- Export / import all data (manual backup, given Google-only sign-in has no linked-email recovery path) ----
-  const buildExportPayload = async () => {
-    const perLogger = {};
-    for (const l of loggers) {
-      let loggerItems = [];
-      let loggerEntries = [];
-      let loggerCurrency = 'NGN';
+  // ---- Download one ledger as a CSV spreadsheet, for analysis in a spreadsheet app or an AI assistant ----
+  const csvCell = (value) => {
+    const text = String(value ?? '');
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+
+  // One spreadsheet row per entry, oldest first (the usual order for analysis).
+  const ledgerCsvRows = async (ledger) => {
+    // The open ledger's entries are already in memory; any other ledger's are read from storage.
+    let ledgerEntries = ledger.id === activeLoggerId ? entries : [];
+    let ledgerCurrency = ledger.id === activeLoggerId ? defaultCurrency : 'NGN';
+    if (ledger.id !== activeLoggerId) {
       try {
-        const r = await storage.get(`ledgerlog-items-${l.id}`, false);
-        if (r && r.value) loggerItems = JSON.parse(r.value);
+        const r = await storage.get(`ledgerly-entries-${ledger.id}`, false);
+        if (r && r.value) ledgerEntries = JSON.parse(r.value);
       } catch (e) {}
       try {
-        const r2 = await storage.get(`ledgerlog-entries-${l.id}`, false);
-        if (r2 && r2.value) loggerEntries = JSON.parse(r2.value);
+        const r = await storage.get(`ledgerly-currency-${ledger.id}`, false);
+        if (r && r.value) ledgerCurrency = r.value;
       } catch (e) {}
-      try {
-        const r3 = await storage.get(`ledgerlog-currency-${l.id}`, false);
-        if (r3 && r3.value) loggerCurrency = r3.value;
-      } catch (e) {}
-      perLogger[l.id] = { items: loggerItems, entries: loggerEntries, currency: loggerCurrency };
     }
-    return {
-      exportedAt: new Date().toISOString(),
-      loggers,
-      perLogger,
-    };
+
+    const pad = (n) => String(n).padStart(2, '0');
+    return [...ledgerEntries]
+      .sort((a, b) => a.id - b.id)
+      .map((e) => {
+        const d = new Date(e.id);
+        const qty = parseFloat(e.quantity) || 0;
+        const total = parseFloat(e.price) || 0;
+        return [
+          ledger.name,
+          ledgerTypeLabel(ledger),
+          `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+          `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+          e.name,
+          qty,
+          qty ? Math.round((total / qty) * 100) / 100 : '',
+          total,
+          e.currency || ledgerCurrency,
+          e.nullified ? 'Yes' : 'No',
+        ];
+      });
   };
 
-  const openExport = async () => {
-    const payload = await buildExportPayload();
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  // Several ledgers go into one file (with a Ledger column), since browsers often block a burst of separate downloads.
+  const downloadLedgersCsv = async (ledgers) => {
+    if (!ledgers.length) return;
+    const header = ['Ledger', 'Type', 'Date', 'Time', 'Item', 'Quantity', 'Unit price', 'Total price', 'Currency', 'Nullified'];
+    const rows = [];
+    for (const ledger of ledgers) rows.push(...(await ledgerCsvRows(ledger)));
+    const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
+
+    // The byte-order mark makes Excel read the file as UTF-8, so non-English item names survive.
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
+    const fileBase =
+      ledgers.length === 1 ? ledgers[0].name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'ledger' : 'ledgers';
     link.href = url;
-    link.download = `ledger-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `${fileBase}-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
-  const handleImportFile = async (e) => {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    let text = '';
-    try {
-      text = await file.text();
-    } catch (err) {
-      setImportError('Couldn\u2019t read that file.');
-      return;
-    }
-    await importData(text);
-  };
-
-  const importData = async (text) => {
-    setImportError('');
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch (e) {
-      setImportError('That doesn\u2019t look like valid backup data.');
-      return;
-    }
-    if (!parsed || !Array.isArray(parsed.loggers) || !parsed.perLogger) {
-      setImportError('That doesn\u2019t look like valid backup data.');
-      return;
-    }
-
-    for (const l of parsed.loggers) {
-      const data = parsed.perLogger[l.id] || { items: [], entries: [], currency: 'NGN' };
-      try {
-        await storage.set(`ledgerlog-items-${l.id}`, JSON.stringify(data.items || []), false);
-        await storage.set(`ledgerlog-entries-${l.id}`, JSON.stringify(data.entries || []), false);
-        await storage.set(`ledgerlog-currency-${l.id}`, data.currency || 'NGN', false);
-      } catch (e) {}
-    }
-
-    setLoggers(parsed.loggers);
-    markTipsSeen(Object.keys(TIPS)); // restoring a backup means they already know the app
-
-    setShowImport(false);
-    setShowSettings(false);
-
-    const targetId = parsed.loggers[0].id;
-    const targetCurrency = (parsed.perLogger[targetId] && parsed.perLogger[targetId].currency) || 'NGN';
-    setIsSwitchingLogger(true);
-    setActiveLoggerId(targetId);
-    setScreen(1);
-    setQuery1('');
-    setSelectedItem(null);
-    setPrice('');
-    setQuantity('1');
-    setQtyIsDefault(true);
-    await loadLoggerData(targetId, targetCurrency);
-    setIsSwitchingLogger(false);
+    setShowLedgerDownload(false);
   };
 
   const resetFlow = () => {
@@ -1680,12 +2127,16 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
     setSelectedItem(null);
     setQuery1('');
     setScreen(4);
-    setDemoToast(true);
-    clearTimeout(demoToastTimer.current);
-    demoToastTimer.current = setTimeout(() => setDemoToast(false), 3500);
+    demoToast.show(DEMO_NOTICE);
   };
 
-  useEffect(() => () => clearTimeout(demoToastTimer.current), []);
+  // The standalone "can't add entries" toast is cancelled outright (not just hidden) when the ledger tip is
+  // already showing that message, or when the person leaves the ledger. Otherwise it would pop up later,
+  // e.g. right after the ledger tip is dismissed, or on the Totals screen.
+  useEffect(() => {
+    if (!demoToast.message) return;
+    if (activeTip === 'ledger' || screen !== 4) demoToast.clear();
+  }, [demoToast.message, activeTip, screen]);
 
   const confirmScreen1 = () => {
     if (!selectedItem) return;
@@ -1772,10 +2223,13 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
   const sendFeedback = () => {
     const text = feedbackText.trim();
     if (!text) return;
-    const url = `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent('LedgerLog feedback')}&body=${encodeURIComponent(text)}`;
+    const url = `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent('Ledgerly feedback')}&body=${encodeURIComponent(text)}`;
     window.location.href = url;
     setShowFeedback(false);
     setFeedbackText('');
+    // Placeholder until feedback goes through a form service: the mailto above only opens the email app,
+    // so this can't actually confirm sending yet.
+    feedbackToast.show('Thanks 🌷 Your feedback has been sent.');
   };
 
   const searchTerm = searchQuery.trim().toLowerCase();
@@ -1903,7 +2357,16 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
       <div
         className="w-full max-w-sm flex flex-col"
         // Ledger and Totals screens are locked to the viewport so their lists scroll inside the dashed box.
-        style={{ background: '#0F1210', minHeight: '100dvh', height: screen >= 4 ? '100dvh' : undefined, position: 'relative' }}
+        // The safe-area padding keeps content clear of the notch and home bar when opened from the home screen
+        // (it's zero in a normal browser tab).
+        style={{
+          background: '#0F1210',
+          minHeight: '100dvh',
+          height: screen >= 4 ? '100dvh' : undefined,
+          position: 'relative',
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
       >
         <PerfEdge />
 
@@ -1911,7 +2374,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
         {screen === 1 && (
           <div className="flex-1 flex flex-col px-5 pb-32">
             <TopBar
-              title="What did you buy?"
+              title="Select an item"
               step={1}
               left={
                 <button
@@ -1937,7 +2400,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
 
             <div className="flex items-center gap-2" style={{ marginTop: 16, marginBottom: 16 }}>
               <button
-                onClick={() => setShowLoggerSwitcher(true)}
+                onClick={() => setShowLoggerSwitcher('switch')}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
                 style={{ fontFamily: 'Manrope', background: 'rgba(245,243,238,0.05)', color: '#F5F3EE', border: '1px solid rgba(245,243,238,0.1)' }}
               >
@@ -1945,7 +2408,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
                 {loggers.find((l) => l.id === activeLoggerId)?.name || 'Ledger 1'}
               </button>
               <button
-                onClick={() => setShowLoggerSwitcher(true)}
+                onClick={() => setShowLoggerSwitcher('create')}
                 aria-label="Create a ledger"
                 className="w-[30px] h-[30px] flex items-center justify-center rounded-full"
                 style={{ background: 'rgba(245,243,238,0.05)', border: '1px solid rgba(245,243,238,0.1)' }}
@@ -1974,7 +2437,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
                   else addNewItem();
                 }}
                 enterKeyHint="done"
-                placeholder="Search or add an item"
+                placeholder="Search items or add an item"
                 className="item-search flex-1 bg-transparent outline-none text-sm"
                 style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}
               />
@@ -2482,15 +2945,32 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
           }}
         />
 
+        <CurrencyPicker
+          open={currencyPromptOpen}
+          value={defaultCurrency}
+          title="Choose your currency"
+          intro="It will be the default for this ledger and any new ledgers. If you want to change the default currency later, you can do so in Settings."
+          onCancel={() => closeCurrencyPrompt(null)}
+          onSelect={closeCurrencyPrompt}
+        />
+
         <LoggerSwitcher
-          open={showLoggerSwitcher}
+          open={!!showLoggerSwitcher}
+          focusNewName={showLoggerSwitcher === 'create'}
           loggers={loggers}
           activeLoggerId={activeLoggerId}
           onSelect={switchLogger}
           onCreate={createLogger}
           newName={newLoggerName}
-          setNewName={setNewLoggerName}
-          onCancel={() => setShowLoggerSwitcher(false)}
+          setNewName={(value) => {
+            setNewLoggerName(value);
+            setNewLoggerError('');
+          }}
+          error={newLoggerError}
+          onCancel={() => {
+            setShowLoggerSwitcher(false);
+            setNewLoggerError('');
+          }}
         />
 
         <MonthYearPicker
@@ -2567,39 +3047,60 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
           onConfirm={confirmCancelEntry}
         />
 
+        {/* In the demo, Settings opens to look at, with this explanation on top. Closing it leaves Settings open. */}
+        <DemoSettingsModal open={demo && showSettings && demoSettingsNotice} onClose={() => setDemoSettingsNotice(false)} />
+
         {showSettings && (
           <SettingsScreen
             onClose={() => setShowSettings(false)}
             loggers={loggers}
             editingLoggerId={editingLoggerId}
             loggerNameDraft={loggerNameDraft}
-            setLoggerNameDraft={setLoggerNameDraft}
+            setLoggerNameDraft={(value) => {
+              setLoggerNameDraft(value);
+              setRenameError('');
+            }}
+            renameError={renameError}
             onStartRename={startRenameLedger}
             onSaveRename={saveRenameLedger}
             onRequestDeleteLedger={(id) => setLedgerPendingDelete(id)}
+            onSetLedgerType={(id, type) => setLoggers((prev) => prev.map((l) => (l.id === id ? { ...l, type } : l)))}
             onReplayWalkthrough={replayWalkthrough}
-            onOpenExport={openExport}
-            onOpenImport={() => {
-              setShowSettings(false);
-              setShowImport(true);
+            onOpenDemo={demo ? () => {} : onOpenDemo /* shown but disabled in the demo */}
+            onOpenLedgerDownload={() => {
+              setDownloadSelection([]); // start with nothing ticked each time
+              setShowLedgerDownload(true);
             }}
             onRequestDeleteAccount={() => setShowDeleteAccount(true)}
             onOpenFeedback={() => setShowFeedback(true)}
             demo={demo}
-            account={account}
-            onCreateAccount={() => setEmailFlow('signup')}
+            account={demo ? DEMO_ACCOUNT : account}
             onAddEmail={() => setEmailFlow('add')}
             onMakePrimary={(address) => accountApi.makePrimary(address)}
             onRequestRemoveEmail={(address) => setEmailPendingRemove(address)}
             onRequestSignOut={() => setShowSignOutConfirm(true)}
+            userCurrency={userCurrency || defaultCurrency}
+            onChangeUserCurrency={() => setShowUserCurrencyPicker(true)}
           />
         )}
+
+        <CurrencyPicker
+          open={showUserCurrencyPicker}
+          value={userCurrency || defaultCurrency}
+          title="Default currency"
+          intro="New ledgers will start with it. Existing ledgers keep the currency that you have set for each of them."
+          onCancel={() => setShowUserCurrencyPicker(false)}
+          onSelect={(code) => {
+            saveUserCurrency(code);
+            setShowUserCurrencyPicker(false);
+          }}
+        />
 
         {!demo && (
           <button
             onClick={onOpenDemo}
             className="absolute text-[11px] underline underline-offset-2"
-            style={{ bottom: 8, left: '50%', transform: 'translateX(-50%)', color: 'rgba(124,136,131,0.55)', fontFamily: 'Manrope', zIndex: 10 }}
+            style={{ bottom: 'calc(8px + env(safe-area-inset-bottom))', left: '50%', transform: 'translateX(-50%)', color: 'rgba(124,136,131,0.55)', fontFamily: 'Manrope', zIndex: 10 }}
           >
             Demo
           </button>
@@ -2611,7 +3112,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
               onClick={onExitDemo}
               className="fixed text-xs font-semibold underline underline-offset-2 px-3 py-1 rounded-full"
               style={{
-                bottom: 3,
+                bottom: 'calc(3px + env(safe-area-inset-bottom))',
                 left: '50%',
                 transform: 'translateX(-50%)',
                 color: '#01A99D',
@@ -2623,22 +3124,14 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
             >
               Exit Demo
             </button>
-            {demoToast && activeTip !== 'ledger' && (
-              <div
-                className="fixed left-1/2 w-full max-w-xs px-4 tip-toast"
-                style={{ top: '50%', transform: 'translate(-50%, -50%)', zIndex: 95 }}
-                role="status"
-              >
-                <div
-                  className="rounded-2xl px-4 py-3 text-[13px] text-left shadow-2xl flex gap-2"
-                  style={{ background: '#171C19', border: '1px solid rgba(1,169,157,0.4)', color: '#01A99D', fontFamily: 'Manrope', lineHeight: 1.45 }}
-                >
-                  <span aria-hidden="true" className="shrink-0 rounded-full" style={{ width: 4, height: 4, marginTop: 7.5, background: '#01A99D' }} />
-                  <span>{DEMO_NOTICE}</span>
-                </div>
-              </div>
+            {demoToast.message && activeTip !== 'ledger' && (
+              <Toast bullets={[demoToast.message]} accent={[DEMO_NOTICE]} leaving={demoToast.leaving} />
             )}
           </>
+        )}
+
+        {feedbackToast.message && (
+          <Toast bullets={[feedbackToast.message]} onDismiss={feedbackToast.hide} leaving={feedbackToast.leaving} />
         )}
 
         {(screen === 4 || screen === 5) && !showSettings && (
@@ -2646,7 +3139,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
             onClick={backToTop}
             className="fixed flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold shadow-xl"
             style={{
-              bottom: 16,
+              bottom: 'calc(16px + env(safe-area-inset-bottom))',
               // Bottom-right of the app column (max-w-sm = 384px), or of the screen on phones.
               right: 'max(16px, calc(50% - 176px))',
               background: '#171C19',
@@ -2660,29 +3153,15 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
           </button>
         )}
 
-        {activeTip && !(demo && demoToast && activeTip !== 'ledger') && (
-          <div
-            className="fixed left-1/2 w-full max-w-xs px-4 tip-toast"
-            style={{ top: '50%', transform: 'translate(-50%, -50%)', zIndex: 45 }}
-            role="status"
-          >
-            <button
-              onClick={() => setActiveTip(null)}
-              aria-label="Dismiss tip"
-              className="w-full rounded-2xl pl-4 pr-9 py-3 text-[13px] text-left shadow-2xl relative"
-              style={{ background: '#171C19', border: '1px solid rgba(1,169,157,0.4)', color: '#F5F3EE', fontFamily: 'Manrope', lineHeight: 1.45 }}
-            >
-              <ul className="flex flex-col gap-1.5">
-                {(demo && activeTip === 'ledger' ? [...TIPS.ledger, DEMO_NOTICE] : TIPS[activeTip]).map((s, i) => (
-                  <li key={i} className="flex gap-2" style={s === DEMO_NOTICE ? { color: '#01A99D' } : undefined}>
-                    <span aria-hidden="true" className="shrink-0 rounded-full" style={{ width: 4, height: 4, marginTop: 7.5, background: '#01A99D' }} />
-                    <span>{s}</span>
-                  </li>
-                ))}
-              </ul>
-              <X size={14} color="#7C8883" style={{ position: 'absolute', top: 12, right: 12 }} />
-            </button>
-          </div>
+        {activeTip && !(demo && demoToast.message && activeTip !== 'ledger') && (
+          <Toast
+            bullets={demo && activeTip === 'ledger' ? [...TIPS.ledger, DEMO_NOTICE] : TIPS[activeTip]}
+            accent={[DEMO_NOTICE]}
+            onDismiss={() => setActiveTip(null)}
+            withClose
+            label="Dismiss tip"
+            zIndex={45}
+          />
         )}
 
         <Walkthrough
@@ -2695,21 +3174,17 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
         <EmailCodeModal
           key={emailFlow || 'none'}
           open={!!emailFlow}
-          heading={emailFlow === 'signup' ? 'Create an account' : 'Add another email'}
-          intro={
-            emailFlow === 'signup'
-              ? 'Enter your email. We will send a code.'
-              : 'Link another email that you can sign in with if you lose access to the other ones.'
-          }
+          heading="Add another email"
+          intro="Link another email that you can sign in with if you lose access to the other ones."
           validateEmail={(address) => (accountApi && accountApi.emailInUse(address) ? 'That email is already linked to an account.' : null)}
-          onVerified={emailFlow === 'signup' ? createAccount : addEmail}
+          onVerified={addEmail}
           onCancel={() => setEmailFlow(null)}
         />
 
         <ConfirmModal
           open={!!emailPendingRemove}
           title={`Remove ${emailPendingRemove || ''}?`}
-          message="You won’t be able to sign in with that email any more. You can link it again later."
+          message="If you do, you won’t be able to sign in with this email anymore (unless you link it again later)."
           confirmLabel="Remove"
           onCancel={() => setEmailPendingRemove(null)}
           onConfirm={removeEmail}
@@ -2736,38 +3211,84 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
         <ConfirmModal
           open={showDeleteAccount}
           title="Delete your account?"
-          message="This permanently deletes every ledger, everything in them and your linked emails, on this device. Consider downloading a backup first."
+          message="This permanently deletes every ledger, everything in them and your linked emails. Consider downloading your ledgers first."
           confirmLabel="Delete everything"
           onCancel={() => setShowDeleteAccount(false)}
           onConfirm={confirmDeleteAccount}
         />
 
-        {showImport && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center px-6" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={() => setShowImport(false)}>
+        {showLedgerDownload && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-6" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={() => setShowLedgerDownload(false)}>
             <div className="w-full max-w-xs rounded-2xl p-5" style={{ background: '#171C19', border: '1px solid rgba(245,243,238,0.1)' }} onClick={(e) => e.stopPropagation()}>
-              <p className="text-sm font-semibold mb-1" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>Restore from backup</p>
+              <p className="text-sm font-semibold mb-1" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>Download ledgers</p>
               <p className="text-xs mb-3" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
-                Choose a backup file downloaded from another account. This replaces all data currently on this device.
+                Choose one or more ledgers. Their entries download together as one spreadsheet.
               </p>
-              <input ref={importFileRef} type="file" accept="application/json,.json" onChange={handleImportFile} className="hidden" />
-              <button
-                onClick={() => importFileRef.current && importFileRef.current.click()}
-                className="w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 mb-3"
-                style={{ background: '#01A99D', color: '#0F1210', fontFamily: 'Manrope' }}
-              >
-                <Upload size={14} /> Choose backup file
-              </button>
-              {importError && <p className="text-xs mb-2" style={{ color: '#F87171', fontFamily: 'Manrope' }}>{importError}</p>}
+              {(() => {
+                const allSelected = loggers.length > 0 && loggers.every((l) => downloadSelection.includes(l.id));
+                const box = (on) => (
+                  <span
+                    aria-hidden="true"
+                    className="w-4 h-4 rounded flex items-center justify-center shrink-0"
+                    style={{ background: on ? '#01A99D' : 'transparent', border: `1.5px solid ${on ? '#01A99D' : 'rgba(245,243,238,0.25)'}` }}
+                  >
+                    {on && <Check size={11} color="#0F1210" strokeWidth={3.5} />}
+                  </span>
+                );
+                return (
+                  <>
+                    <button
+                      onClick={() => setDownloadSelection(allSelected ? [] : loggers.map((l) => l.id))}
+                      role="checkbox"
+                      aria-checked={allSelected}
+                      className="w-full flex items-center justify-between py-2 pr-[13px] mb-1.5 text-left"
+                    >
+                      <span className="text-xs font-semibold" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
+                        Select all
+                      </span>
+                      {box(allSelected)}
+                    </button>
+                    <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto mb-4">
+                      {loggers.map((l) => {
+                        const on = downloadSelection.includes(l.id);
+                        return (
+                          <button
+                            key={l.id}
+                            onClick={() => setDownloadSelection((prev) => (on ? prev.filter((id) => id !== l.id) : [...prev, l.id]))}
+                            role="checkbox"
+                            aria-checked={on}
+                            className="flex items-center justify-between px-3 py-2.5 rounded-xl text-left"
+                            style={{
+                              background: on ? 'rgba(1,169,157,0.12)' : 'rgba(245,243,238,0.04)',
+                              border: `1px solid ${on ? '#01A99D' : 'rgba(245,243,238,0.1)'}`,
+                            }}
+                          >
+                            <span className="text-sm" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
+                              {l.name}
+                            </span>
+                            {box(on)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
               <div className="flex gap-2.5">
                 <button
-                  onClick={() => {
-                    setShowImport(false);
-                    setImportError('');
-                  }}
+                  onClick={() => setShowLedgerDownload(false)}
                   className="flex-1 py-2.5 rounded-xl text-sm font-medium"
                   style={{ background: 'rgba(245,243,238,0.06)', color: '#F5F3EE', fontFamily: 'Manrope' }}
                 >
                   Cancel
+                </button>
+                <button
+                  onClick={() => downloadLedgersCsv(loggers.filter((l) => downloadSelection.includes(l.id)))}
+                  disabled={!downloadSelection.length}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 disabled:opacity-40"
+                  style={{ background: '#01A99D', color: '#0F1210', fontFamily: 'Manrope' }}
+                >
+                  <Download size={14} /> Download{downloadSelection.length ? ` (${downloadSelection.length})` : ''}
                 </button>
               </div>
             </div>
@@ -2797,7 +3318,7 @@ function KeyBtn({ label, onPress, icon, children, muted, small, full }) {
   );
 }
 
-// App-wide styles. Rendered by LedgerLog so they also apply to the sign-in screen, which shows without the app.
+// App-wide styles. Rendered by Ledgerly so they also apply to the sign-in screen, which shows without the app.
 const GLOBAL_STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
   .mono-num { font-family: 'Space Mono', monospace; }
@@ -2805,10 +3326,13 @@ const GLOBAL_STYLES = `
   * { -webkit-tap-highlight-color: transparent; }
   @keyframes tipIn { from { opacity: 0; margin-top: -8px; } to { opacity: 1; margin-top: 0; } }
   .tip-toast { animation: tipIn 0.25s ease-out; }
+  @keyframes tipOut { from { opacity: 1; margin-top: 0; } to { opacity: 0; margin-top: -8px; } }
+  .tip-toast.leaving { animation: tipOut 0.25s ease-in forwards; pointer-events: none; }
 `;
 
 // Several accounts can live on one device (prototype). Each keeps its ledgers under its own key prefix.
-// The first account adopts the ledgers that were here before any account existed (no prefix).
+// The first account on a device adopts the ledgers already there (no prefix), so people who used the app
+// before accounts existed keep their entries.
 const makeAccountStorage = (prefix) =>
   !prefix
     ? window.storage
@@ -2818,22 +3342,34 @@ const makeAccountStorage = (prefix) =>
         delete: (key, shared) => window.storage.delete(prefix + key, shared),
       };
 
-export default function LedgerLog() {
+export default function Ledgerly() {
   const [demoOpen, setDemoOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [accounts, setAccounts] = useState([]); // [{ id, prefix, emails: [{ address, primary, addedAt }] }]
   const [sessionId, setSessionId] = useState(null); // id of the signed-in account
+  const [introDone, setIntroDone] = useState(false); // the 3 intro screens shown before signing up
+  const [introStep, setIntroStep] = useState(0);
+  const [justSignedUp, setJustSignedUp] = useState(false);
+  const [replayingIntro, setReplayingIntro] = useState(false); // intro reopened from the sign-up screen
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await window.storage.get('ledgerlog-accounts', false);
+        const res = await window.storage.get('ledgerly-accounts', false);
         const parsed = res && res.value ? JSON.parse(res.value) : [];
         if (Array.isArray(parsed)) setAccounts(parsed);
       } catch (e) {}
       try {
-        const res = await window.storage.get('ledgerlog-session', false);
+        const res = await window.storage.get('ledgerly-session', false);
         if (res && res.value) setSessionId(res.value);
+      } catch (e) {}
+      try {
+        // Anyone who has an account, or used the app before accounts existed, has seen the intro already.
+        const intro = await window.storage.get('ledgerly-intro-done', false);
+        const oldWalkthrough = await window.storage.get('ledgerly-seen-walkthrough', false);
+        const accountsRes = await window.storage.get('ledgerly-accounts', false);
+        const hasAccounts = !!(accountsRes && accountsRes.value && JSON.parse(accountsRes.value).length);
+        setIntroDone((intro && intro.value === 'true') || (oldWalkthrough && oldWalkthrough.value === 'true') || hasAccounts);
       } catch (e) {}
       setReady(true);
     })();
@@ -2841,29 +3377,48 @@ export default function LedgerLog() {
 
   const saveAccounts = (next) => {
     setAccounts(next);
-    window.storage.set('ledgerlog-accounts', JSON.stringify(next), false).catch(() => {});
+    window.storage.set('ledgerly-accounts', JSON.stringify(next), false).catch(() => {});
   };
 
   const startSession = (id) => {
     setSessionId(id);
-    if (id) window.storage.set('ledgerlog-session', id, false).catch(() => {});
-    else window.storage.delete('ledgerlog-session', false).catch(() => {});
+    if (id) window.storage.set('ledgerly-session', id, false).catch(() => {});
+    else window.storage.delete('ledgerly-session', false).catch(() => {});
   };
 
   const activeAccount = accounts.find((a) => a.id === sessionId) || null;
-  const showSignIn = accounts.length > 0 && !activeAccount;
   const prefix = activeAccount ? activeAccount.prefix : '';
   const storage = useMemo(() => makeAccountStorage(prefix), [prefix]);
 
   const emailInUse = (address) => accounts.some((a) => a.emails.some((e) => e.address === address));
   const accountWithEmail = (address) => accounts.find((a) => a.emails.some((e) => e.address === address));
 
-  // keepCurrentLedgers: created from Settings, so the account takes over the ledgers already on screen.
-  const createAccount = (address, keepCurrentLedgers) => {
+  const finishIntro = () => {
+    setIntroDone(true);
+    setIntroStep(0);
+    window.storage.set('ledgerly-intro-done', 'true', false).catch(() => {});
+  };
+
+  const createAccount = async (address) => {
     const id = 'acct-' + Date.now();
-    const account = { id, prefix: keepCurrentLedgers ? '' : `${id}:`, emails: [{ address, primary: true, addedAt: Date.now() }] };
-    saveAccounts([...accounts, account]);
+    const prefix = accounts.length === 0 ? '' : `${id}:`;
+    const ns = makeAccountStorage(prefix);
+    // They've just seen the intro, so the app shouldn't show it again. Brand-new users still get the
+    // first-time tips; people who used the app before accounts existed keep their old tip settings.
+    try {
+      const tips = await ns.get('ledgerly-seen-tips', false);
+      const walkthrough = await ns.get('ledgerly-seen-walkthrough', false);
+      if (!(tips && tips.value) && !(walkthrough && walkthrough.value === 'true')) await ns.set('ledgerly-seen-tips', '[]', false);
+      await ns.set('ledgerly-seen-walkthrough', 'true', false);
+    } catch (e) {}
+    saveAccounts([...accounts, { id, prefix, emails: [{ address, primary: true, addedAt: Date.now() }] }]);
+    setJustSignedUp(true);
     startSession(id);
+  };
+
+  const signIn = (address) => {
+    setJustSignedUp(false);
+    startSession(accountWithEmail(address).id);
   };
 
   const updateActive = (change) => saveAccounts(accounts.map((a) => (a.id === activeAccount.id ? change(a) : a)));
@@ -2871,14 +3426,23 @@ export default function LedgerLog() {
   const accountApi = {
     account: activeAccount,
     emailInUse,
-    create: (address) => createAccount(address, true),
     addEmail: (address) => updateActive((a) => ({ ...a, emails: [...a.emails, { address, primary: false, addedAt: Date.now() }] })),
     makePrimary: (address) => updateActive((a) => ({ ...a, emails: a.emails.map((e) => ({ ...e, primary: e.address === address })) })),
     removeEmail: (address) => updateActive((a) => ({ ...a, emails: a.emails.filter((e) => e.address !== address) })),
-    signOut: () => startSession(null),
-    deleteActive: () => {
-      saveAccounts(accounts.filter((a) => a.id !== activeAccount.id));
+    signOut: () => {
+      setJustSignedUp(false);
       startSession(null);
+    },
+    deleteActive: () => {
+      const remaining = accounts.filter((a) => a.id !== activeAccount.id);
+      saveAccounts(remaining);
+      setJustSignedUp(false);
+      startSession(null);
+      if (!remaining.length) {
+        // A full fresh start: the intro screens come back before signing up again.
+        setIntroDone(false);
+        window.storage.delete('ledgerly-intro-done', false).catch(() => {});
+      }
     },
   };
 
@@ -2887,17 +3451,39 @@ export default function LedgerLog() {
   return (
     <>
       <style>{GLOBAL_STYLES}</style>
-      {showSignIn ? (
-        <SignInScreen
-          accounts={accounts}
-          emailInUse={emailInUse}
-          onSignIn={(address) => startSession(accountWithEmail(address).id)}
-          onCreateAccount={(address) => createAccount(address, false)}
+      {activeAccount ? (
+        // A different account means different ledgers, so the app remounts and loads them fresh.
+        <LedgerApp
+          key={prefix || 'root'}
+          storage={storage}
+          accountApi={accountApi}
+          focusSearchOnStart={justSignedUp}
           onOpenDemo={() => setDemoOpen(true)}
         />
+      ) : !introDone ? (
+        <Walkthrough open step={introStep} setStep={setIntroStep} onDismiss={finishIntro} />
       ) : (
-        // A different account means different ledgers, so the app remounts and loads them fresh.
-        <LedgerApp key={prefix || 'root'} storage={storage} accountApi={accountApi} onOpenDemo={() => setDemoOpen(true)} />
+        <AuthScreen
+          accounts={accounts}
+          emailInUse={emailInUse}
+          onSignIn={signIn}
+          onCreateAccount={createAccount}
+          onOpenDemo={() => setDemoOpen(true)}
+          onViewIntro={() => setReplayingIntro(true)}
+        />
+      )}
+      {/* Drawn over the sign-up screen, which stays mounted underneath so anything typed there is kept. */}
+      {replayingIntro && !activeAccount && introDone && (
+        <Walkthrough
+          open
+          step={introStep}
+          setStep={setIntroStep}
+          doneLabel="Back to sign-up"
+          onDismiss={() => {
+            setReplayingIntro(false);
+            setIntroStep(0);
+          }}
+        />
       )}
       {demoOpen && (
         <div

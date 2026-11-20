@@ -6,10 +6,10 @@ import './index.css';
 installStorage();
 
 // Import after the storage shim is installed.
-import('./LedgerLog.jsx').then(({ default: LedgerLog }) => {
+import('./Ledgerly.jsx').then(({ default: Ledgerly }) => {
   createRoot(document.getElementById('root')).render(
     <React.StrictMode>
-      <LedgerLog />
+      <Ledgerly />
     </React.StrictMode>
   );
 });

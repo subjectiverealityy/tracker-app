@@ -2,7 +2,7 @@
 // This reproduces that small API on top of localStorage so the app behaves the same
 // in a normal browser. If localStorage is unavailable (private mode, blocked), it
 // falls back to memory, so the app still works but won't remember anything.
-const PREFIX = 'ledgerlog-demo:';
+const PREFIX = 'ledgerly-demo:';
 const memory = new Map();
 
 const read = (key) => {
