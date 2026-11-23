@@ -2660,7 +2660,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
                     </span>
                     {searchSums.map(([code, total]) => (
                       <span key={code} className="mono-num" style={{ color: '#01A99D' }}>
-                        · {currencyOf(code).symbol}
+                        {currencyOf(code).symbol}
                         {fmt(total)}
                       </span>
                     ))}
