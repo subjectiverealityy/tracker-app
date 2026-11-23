@@ -765,7 +765,8 @@ function EditEntryModal({ entry, defaultCurrency, onCancel, onSave }) {
   const today = toDateInput(new Date());
   const qty = parseFloat(quantity);
   const amount = parseFloat(price);
-  const trimmedName = name.trim();
+  const rawName = name.trim();
+  const trimmedName = rawName.charAt(0).toUpperCase() + rawName.slice(1); // capitalised like new items on step 1
   const valid = trimmedName !== '' && qty > 0 && amount > 0 && date !== '' && date <= today;
   const changed =
     trimmedName !== entry.name ||
