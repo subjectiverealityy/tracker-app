@@ -1,6 +1,6 @@
 # Ledgerly (UI/UX prototype)
 
-An expenses / income logging app prototype: pick an item, enter quantity and price on an on-screen keypad, and review entries, daily totals and monthly/yearly totals per ledger. It's a front-end demo only, with no backend.
+An expenses / income logging app prototype: pick an item, enter price and quantity on an on-screen keypad, and review entries, daily totals and monthly/yearly totals per ledger. It's a front-end demo only, with no backend.
 
 - After three intro screens, the real app asks you to create an account with an email and a 6-digit code. It's a prototype: no email is sent (the code is shown on screen) and accounts only exist in this browser. You can link up to 3 emails, and several accounts can share one browser, each with its own ledgers.
 - Tap **Demo** (small underlined text at the bottom of Step 1, or **Try the demo** on the sign-in screen) to explore pre-filled data covering three years and several currencies. Nothing in the demo touches your real data.

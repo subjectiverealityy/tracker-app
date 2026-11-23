@@ -74,8 +74,8 @@ const currencyOf = (code) =>
 // TIP_SCREEN says which screen each belongs to.
 const TIPS = {
   firstItem: [
-    <>Add items in <strong>single units</strong> (you will be asked to add their quantity and price later).</>,
-    'A big circle with a ‘✓’ icon will appear after you add your first item. Tap it to add the item’s quantity and price.',
+    <>Add items in <strong>single units</strong> (you will be asked to add their price and quantity later).</>,
+    'A big circle with a ‘✓’ icon will appear after you add your first item. Tap it to add the item’s price and quantity.',
     <><strong>Tip:</strong> Double-tap an item to delete it.</>,
     <>
       <strong>Switch between ledgers</strong> or <strong>create a new ledger</strong> on this screen, but rename or delete ledgers in Settings.
@@ -100,7 +100,7 @@ const TIPS = {
     <>Click the flower icon (🌷) on the top-left to <strong>send feedback</strong>.</>,
   ],
 };
-const TIP_SCREEN = { firstItem: 1, quantity: 2, price: 3, ledger: 4, totals: 5 }; // settings is an overlay, handled separately
+const TIP_SCREEN = { firstItem: 1, price: 2, quantity: 3, ledger: 4, totals: 5 }; // settings is an overlay, handled separately
 const DEMO_TIPS = ['firstItem', 'ledger', 'totals'];
 // Shown in the demo's Settings in place of a real account.
 const DEMO_ACCOUNT = { id: 'demo', prefix: 'demo:', emails: [{ address: 'you@example.com', primary: true, addedAt: 0 }] };
@@ -990,7 +990,7 @@ const WALKTHROUGH_SLIDES = [
   },
   {
     title: 'Fast entry, few taps',
-    body: 'Built for quick, one-handed use. Pick or add an item, then use the on-screen keypad to enter quantity and price.',
+    body: 'Built for quick, one-handed use. Pick or add an item, then use the on-screen keypad to enter price and quantity.',
   },
   {
     title: 'Your ledger, your totals',
@@ -2030,13 +2030,13 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
     setActiveTip((prev) => (prev && TIP_SCREEN[prev] === screen ? prev : null));
     if (showWalkthrough) return; // wait until the walkthrough is closed
     if (screen === 1) showTip('firstItem');
-    else if (screen === 2) showTip('quantity');
-    else if (screen === 3) {
+    else if (screen === 2) {
       if (needsCurrencyPrompt()) {
         markTipsSeen([...seenTips, 'currencyPrompt']);
         setCurrencyPromptOpen(true); // the price tip follows once a currency is chosen
       } else showTip('price');
-    } else if (screen === 4 && entries.length > 0) showTip('ledger');
+    } else if (screen === 3) showTip('quantity');
+    else if (screen === 4 && entries.length > 0) showTip('ledger');
     else if (screen === 5) showTip('totals');
   }, [screen, loaded, showWalkthrough]);
 
@@ -2344,7 +2344,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
     setScreen(2);
   };
 
-  // ---- Screen 2: quantity keypad ----
+  // ---- Screen 3: quantity keypad (submits the entry) ----
   const pressQtyKey = (k) => {
     if (k === 'back') {
       setQuantity((q) => q.slice(0, -1));
@@ -2380,10 +2380,20 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
 
   const confirmScreenQty = () => {
     if (!qtyValid) return;
-    setScreen(3);
+    const entry = {
+      id: Date.now(),
+      name: selectedItem,
+      quantity: parseFloat(quantity),
+      price: parseFloat(price),
+      currency: entryCurrency,
+    };
+    setEntries((prev) => [entry, ...prev]);
+    setLastEntryId(entry.id);
+    setEntryCurrency(defaultCurrency);
+    setScreen(4);
   };
 
-  // ---- Screen 3: price keypad (submits the entry) ----
+  // ---- Screen 2: total price keypad ----
   const pressKey = (k) => {
     if (k === 'back') {
       setPrice((p) => p.slice(0, -1));
@@ -2404,17 +2414,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
 
   const confirmScreenPrice = () => {
     if (!priceValid) return;
-    const entry = {
-      id: Date.now(),
-      name: selectedItem,
-      quantity: parseFloat(quantity),
-      price: parseFloat(price),
-      currency: entryCurrency,
-    };
-    setEntries((prev) => [entry, ...prev]);
-    setLastEntryId(entry.id);
-    setEntryCurrency(defaultCurrency);
-    setScreen(4);
+    setScreen(3);
   };
 
   const sendFeedback = () => {
@@ -2707,13 +2707,13 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
           </div>
         )}
 
-        {/* SCREEN 2 */}
-        {screen === 2 && (
+        {/* SCREEN 3: quantity */}
+        {screen === 3 && (
           <div className="flex-1 flex flex-col px-5 pb-28">
             <TopBar
               title={selectedItem}
-              step={2}
-              onBack={() => setScreen(1)}
+              step={3}
+              onBack={() => setScreen(2)}
               right={
                 <button
                   onClick={() => setShowCancelConfirm(true)}
@@ -2766,13 +2766,13 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
           </div>
         )}
 
-        {/* SCREEN 3 */}
-        {screen === 3 && (
+        {/* SCREEN 2: total price */}
+        {screen === 2 && (
           <div className="flex-1 flex flex-col px-5 pb-28">
             <TopBar
               title={selectedItem}
-              step={3}
-              onBack={() => setScreen(2)}
+              step={2}
+              onBack={() => setScreen(1)}
               right={
                 <button
                   onClick={() => setShowCancelConfirm(true)}
@@ -3159,7 +3159,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
         )}
 
         {screen === 1 && <ConfirmCircle show={!!selectedItem} onClick={confirmScreen1} label="Confirm item" raised={demo} />}
-        {screen === 2 && (
+        {screen === 3 && (
           <ConfirmCircle
             show={qtyValid}
             onClick={confirmScreenQty}
@@ -3169,7 +3169,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
             onIncrement={() => adjustQuantity(1)}
           />
         )}
-        {screen === 3 && <ConfirmCircle show={priceValid} onClick={confirmScreenPrice} label="Confirm price" raised={demo} />}
+        {screen === 2 && <ConfirmCircle show={priceValid} onClick={confirmScreenPrice} label="Confirm price" raised={demo} />}
 
         <CurrencyPicker
           open={showCurrencyPicker}
