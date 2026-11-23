@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, memo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { Search, Check, Delete, Plus, Minus, ChevronLeft, ChevronRight, Calendar, NotebookText, ArrowLeftRight, Settings, Pencil, Trash2, X, Download, AlertTriangle, LogOut, RotateCcw, Rocket, Copy, CalendarDays, CalendarRange, CalendarSearch, ArrowUp } from 'lucide-react';
 
 // Where feedback emails are sent. Set this to your real address.
@@ -88,7 +88,7 @@ const TIPS = {
   ],
   ledger: [
     <>You can <strong>search past entries</strong> here and <strong>compare per-unit prices</strong>.</>,
-    <><strong>Tip:</strong> Double-tap an entry to cancel it.</>,
+    <><strong>Tip:</strong> Double-tap an entry to edit or cancel it.</>,
   ],
   totals: [
     'Here, you can see the daily, monthly and yearly totals of your selected ledger.',
@@ -113,6 +113,12 @@ const MONTH_YEAR_FMT = new Intl.DateTimeFormat('en-NG', { month: 'long', year: '
 const MONTH_FMT = new Intl.DateTimeFormat('en-NG', { month: 'long' });
 
 const fmt = (n) => NUM_FMT.format(Number(n || 0));
+
+// When an entry happened. Edited entries carry their own date in `at`; older ones use their id,
+// which is the moment they were saved.
+const entryTime = (e) => (e.at != null ? e.at : e.id);
+// Ledger lists are kept newest first.
+const byNewest = (a, b) => entryTime(b) - entryTime(a) || b.id - a.id;
 
 const monthKeyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const monthLabelOf = (d) => MONTH_YEAR_FMT.format(d);
@@ -146,7 +152,7 @@ const rollupOf = (dailyBuckets, keyFn) => {
 };
 
 // One row of the ledger list. Memoised so it only re-renders when its own data changes.
-const EntryRow = memo(function EntryRow({ e, dayKey, showDay, defaultCurrency, dayRefs, onNullify }) {
+const EntryRow = memo(function EntryRow({ e, dayKey, showDay, defaultCurrency, dayRefs, onOpenActions }) {
   const cur = e.currency || defaultCurrency;
   return (
     <div>
@@ -158,11 +164,11 @@ const EntryRow = memo(function EntryRow({ e, dayKey, showDay, defaultCurrency, d
           className="px-4 py-1 text-[10px] uppercase tracking-[0.15em] font-semibold"
           style={{ background: 'rgba(245,243,238,0.05)', color: '#7C8883' }}
         >
-          {dayLabelOf(new Date(e.id))}
+          {dayLabelOf(new Date(entryTime(e)))}
         </div>
       )}
       <div
-        onDoubleClick={() => onNullify(e.id)}
+        onDoubleClick={() => onOpenActions(e.id)}
         className="px-4 py-3 flex items-center text-sm select-none"
         style={{
           borderBottom: '1px dashed rgba(245,243,238,0.08)',
@@ -663,13 +669,15 @@ function LoggerSwitcher({ open, loggers, activeLoggerId, onSelect, onCreate, new
   );
 }
 
-function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onCancel, onConfirm }) {
+// onDismiss (tapping outside) defaults to onCancel; pass it when the left button does something else, like Delete.
+// cancelDanger / confirmDanger style that button as destructive (red), for when it deletes something.
+function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', cancelDanger = false, confirmDanger = false, onCancel, onConfirm, onDismiss = onCancel }) {
   if (!open) return null;
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-6"
       style={{ background: 'rgba(0,0,0,0.6)' }}
-      onClick={onCancel}
+      onClick={onDismiss}
     >
       <div
         className="w-full max-w-xs rounded-2xl p-5"
@@ -686,18 +694,211 @@ function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', cancelLa
           <button
             onClick={onCancel}
             className="flex-1 py-2.5 rounded-xl text-sm font-medium"
-            style={{ background: 'rgba(245,243,238,0.06)', color: '#F5F3EE', fontFamily: 'Manrope' }}
+            style={
+              cancelDanger
+                ? { background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: '#F87171', fontFamily: 'Manrope' }
+                : { background: 'rgba(245,243,238,0.06)', color: '#F5F3EE', fontFamily: 'Manrope' }
+            }
           >
             {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
             className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
-            style={{ background: '#01A99D', color: '#0F1210', fontFamily: 'Manrope' }}
+            style={
+              confirmDanger
+                ? { background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: '#F87171', fontFamily: 'Manrope' }
+                : { background: '#01A99D', color: '#0F1210', fontFamily: 'Manrope' }
+            }
           >
             {confirmLabel}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+const MODAL_CARD_STYLE = { background: '#171C19', border: '1px solid rgba(245,243,238,0.1)' };
+const pad2 = (n) => String(n).padStart(2, '0');
+const toDateInput = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+// Opens when an active entry is double-tapped (nullified ones go to the Restore box instead).
+// Saving overwrites the entry (see saveEntryEdit in LedgerApp). The toggle at the bottom nullifies it
+// instead; nothing changes until Save.
+function EditEntryModal({ entry, defaultCurrency, onCancel, onSave }) {
+  const [name, setName] = useState('');
+  const [quantity, setQuantity] = useState('');
+  const [price, setPrice] = useState('');
+  const [currency, setCurrency] = useState(defaultCurrency);
+  const [date, setDate] = useState('');
+  const [nullify, setNullify] = useState(false);
+  const [pickingCurrency, setPickingCurrency] = useState(false);
+
+  const resetFields = () => {
+    setName(entry.name);
+    setQuantity(String(entry.quantity));
+    setPrice(String(entry.price));
+    setCurrency(entry.currency || defaultCurrency);
+    setDate(toDateInput(new Date(entryTime(entry))));
+  };
+
+  useEffect(() => {
+    if (!entry) return;
+    resetFields();
+    setNullify(false);
+    setPickingCurrency(false);
+  }, [entry]);
+
+  // A nullified entry can't be edited, so switching to nullified puts the fields back as they were.
+  const toggleNullify = () => {
+    if (!nullify) resetFields();
+    setNullify(!nullify);
+  };
+
+  if (!entry) return null;
+
+  const decimalOnly = (setter) => (ev) => {
+    const v = ev.target.value.replace(',', '.');
+    if (/^\d*\.?\d*$/.test(v) && v.length <= 12) setter(v);
+  };
+  const today = toDateInput(new Date());
+  const qty = parseFloat(quantity);
+  const amount = parseFloat(price);
+  const trimmedName = name.trim();
+  const valid = trimmedName !== '' && qty > 0 && amount > 0 && date !== '' && date <= today;
+  const changed =
+    trimmedName !== entry.name ||
+    qty !== parseFloat(entry.quantity) ||
+    amount !== parseFloat(entry.price) ||
+    currency !== (entry.currency || defaultCurrency) ||
+    date !== toDateInput(new Date(entryTime(entry)));
+  const canSave = nullify || (valid && changed);
+  const cur = currencyOf(currency);
+
+  const labelCls = 'block text-[11px] uppercase tracking-[0.12em] font-semibold mb-1.5';
+  const fieldStyle = { background: 'rgba(245,243,238,0.04)', border: '1px solid rgba(245,243,238,0.1)', color: '#F5F3EE', fontFamily: 'Manrope' };
+  const fieldCls = 'w-full rounded-xl px-3 py-2.5 text-sm outline-none';
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onCancel}>
+      <div className="min-h-full flex items-center justify-center px-6 py-10">
+        <div className="w-full max-w-xs rounded-2xl p-5" style={MODAL_CARD_STYLE} onClick={(e) => e.stopPropagation()}>
+          <p className="text-sm font-semibold mb-4" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
+            Edit entry
+          </p>
+
+          <fieldset disabled={nullify} className="min-w-0 m-0 p-0 border-0 transition-opacity" style={{ opacity: nullify ? 0.35 : 1 }}>
+          <label className={labelCls} style={{ color: '#7C8883' }}>
+            Item
+            <input value={name} onChange={(e) => setName(e.target.value)} className={`${fieldCls} mt-1.5 normal-case tracking-normal font-normal`} style={fieldStyle} />
+          </label>
+
+          <div className="flex gap-2.5 mt-3">
+            <label className={`${labelCls} w-24 shrink-0`} style={{ color: '#7C8883' }}>
+              Quantity
+              <input
+                value={quantity}
+                onChange={decimalOnly(setQuantity)}
+                inputMode="decimal"
+                className={`${fieldCls} mt-1.5 mono-num normal-case tracking-normal font-normal`}
+                style={fieldStyle}
+              />
+            </label>
+            <div className={`${labelCls} flex-1 min-w-0`} style={{ color: '#7C8883' }}>
+              Total price
+              <div className="flex gap-1.5 mt-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPickingCurrency(true)}
+                  aria-label={`Currency: ${cur.name}. Change`}
+                  className="shrink-0 rounded-xl px-2.5 text-sm font-semibold normal-case tracking-normal"
+                  style={{ ...fieldStyle, color: '#01A99D' }}
+                >
+                  {cur.symbol}
+                </button>
+                <input
+                  value={price}
+                  onChange={decimalOnly(setPrice)}
+                  inputMode="decimal"
+                  aria-label="Total price"
+                  className={`${fieldCls} min-w-0 mono-num normal-case tracking-normal font-normal`}
+                  style={fieldStyle}
+                />
+              </div>
+            </div>
+          </div>
+
+          <label className={`${labelCls} mt-3`} style={{ color: '#7C8883' }}>
+            Date
+            <input
+              type="date"
+              value={date}
+              max={today}
+              onChange={(e) => setDate(e.target.value)}
+              className={`${fieldCls} mt-1.5 normal-case tracking-normal font-normal`}
+              style={{ ...fieldStyle, colorScheme: 'dark' }}
+            />
+          </label>
+          </fieldset>
+
+          <div className="mt-4 pt-3.5 flex items-start gap-3" style={{ borderTop: '1px solid rgba(245,243,238,0.08)' }}>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold mb-0.5" style={{ color: '#F5F3EE', fontFamily: 'Manrope' }}>
+                {nullify ? `Restore '${entry.name}'?` : `Nullify '${entry.name}'?`}
+              </p>
+              <p className="text-[11px]" style={{ color: '#7C8883', fontFamily: 'Manrope' }}>
+                {nullify
+                  ? 'It will be counted in totals again.'
+                  : 'It will stay in the ledger list, but will not be counted in totals. You can restore it at any time.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={nullify}
+              aria-label="Nullified"
+              onClick={toggleNullify}
+              className="relative shrink-0 w-10 h-6 rounded-full transition-colors mt-0.5"
+              style={{ background: nullify ? '#01A99D' : 'rgba(245,243,238,0.15)' }}
+            >
+              <span
+                className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform"
+                style={{ background: '#F5F3EE', transform: nullify ? 'translateX(16px)' : 'translateX(0)' }}
+              />
+            </button>
+          </div>
+
+          <div className="flex gap-2.5 mt-4">
+            <button
+              onClick={onCancel}
+              className="flex-1 py-2.5 rounded-xl text-sm font-medium"
+              style={{ background: 'rgba(245,243,238,0.06)', color: '#F5F3EE', fontFamily: 'Manrope' }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => canSave && onSave(nullify ? { nullify: true } : { name: trimmedName, quantity: qty, price: amount, currency, date })}
+              disabled={!canSave}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
+              style={{ background: '#01A99D', color: '#0F1210', fontFamily: 'Manrope', opacity: canSave ? 1 : 0.4 }}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div onClick={(e) => e.stopPropagation()}>
+        <CurrencyPicker
+          open={pickingCurrency}
+          value={currency}
+          onCancel={() => setPickingCurrency(false)}
+          onSelect={(code) => {
+            setCurrency(code);
+            setPickingCurrency(false);
+          }}
+        />
       </div>
     </div>
   );
@@ -1619,6 +1820,8 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
   const [itemPendingDelete, setItemPendingDelete] = useState(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [nullifyEntryId, setNullifyEntryId] = useState(null);
+  const [editEntryId, setEditEntryId] = useState(null);
+  const [deleteEntryId, setDeleteEntryId] = useState(null);
   const [showFeedback, setShowFeedback] = useState(false);
   // When feedback goes to a form service (e.g. Formspree), show "sent" or "couldn't send" here.
   const feedbackToast = useTimedToast();
@@ -2029,9 +2232,9 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
 
     const pad = (n) => String(n).padStart(2, '0');
     return [...ledgerEntries]
-      .sort((a, b) => a.id - b.id)
+      .sort((a, b) => byNewest(b, a))
       .map((e) => {
-        const d = new Date(e.id);
+        const d = new Date(entryTime(e));
         const qty = parseFloat(e.quantity) || 0;
         const total = parseFloat(e.price) || 0;
         return [
@@ -2237,8 +2440,8 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
   const entryRows = useMemo(
     () =>
       visibleEntries.map((e, i) => {
-        const dayKey = new Date(e.id).toDateString();
-        const prevDayKey = i > 0 ? new Date(visibleEntries[i - 1].id).toDateString() : null;
+        const dayKey = new Date(entryTime(e)).toDateString();
+        const prevDayKey = i > 0 ? new Date(entryTime(visibleEntries[i - 1])).toDateString() : null;
         return { e, dayKey, showDay: dayKey !== prevDayKey };
       }),
     [visibleEntries]
@@ -2271,16 +2474,56 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
 
   const nullifyTarget = entries.find((e) => e.id === nullifyEntryId) || null;
 
-  const toggleNullifyEntry = () => {
-    setEntries((prev) => prev.map((e) => (e.id === nullifyEntryId ? { ...e, nullified: !e.nullified } : e)));
+  // Active entries are nullified from the Edit box; this box only restores (or deletes) nullified ones.
+  const restoreEntry = () => {
+    setEntries((prev) => prev.map((e) => (e.id === nullifyEntryId ? { ...e, nullified: false } : e)));
     setNullifyEntryId(null);
+  };
+
+  // Double-tap: nullified entries go straight to the Restore / Delete box, others to the Edit box.
+  // Reads entries through a ref so the callback stays the same and the memoised rows don't all re-render.
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+  const openEntry = useCallback((id) => {
+    const entry = entriesRef.current.find((e) => e.id === id);
+    if (entry && entry.nullified) setNullifyEntryId(id);
+    else setEditEntryId(id);
+  }, []);
+
+  const editTarget = entries.find((e) => e.id === editEntryId) || null;
+  const deleteTarget = entries.find((e) => e.id === deleteEntryId) || null;
+
+  const deleteEntry = () => {
+    setEntries((prev) => prev.filter((e) => e.id !== deleteEntryId));
+    setDeleteEntryId(null);
+  };
+
+  // Saving overwrites the entry. A new date keeps the original's time of day (never later than now),
+  // and the entry moves to its place in the list.
+  const saveEntryEdit = ({ nullify, name, quantity, price, currency, date }) => {
+    const original = editTarget;
+    if (!original) return;
+    if (nullify) {
+      setEntries((prev) => prev.map((e) => (e.id === original.id ? { ...e, nullified: true } : e)));
+      setEditEntryId(null);
+      return;
+    }
+    const was = new Date(entryTime(original));
+    let at = entryTime(original);
+    if (date !== toDateInput(was)) {
+      const [y, m, d] = date.split('-').map(Number);
+      at = Math.min(new Date(y, m - 1, d, was.getHours(), was.getMinutes(), was.getSeconds()).getTime(), Date.now());
+    }
+    setEntries((prev) => prev.map((e) => (e.id === original.id ? { ...e, at, name, quantity, price, currency } : e)).sort(byNewest));
+    setItems((prev) => (prev.includes(name) ? prev : [name, ...prev]));
+    setEditEntryId(null);
   };
 
   const dailyTotals = useMemo(() => {
     const map = new Map();
     entries.forEach((e) => {
       if (e.nullified) return; // nullified entries don't count toward any totals
-      const d = new Date(e.id);
+      const d = new Date(entryTime(e));
       const key = d.toDateString();
       const cur = e.currency || defaultCurrency;
       const amount = parseFloat(e.price) || 0;
@@ -2721,7 +2964,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
                     showDay={r.showDay}
                     defaultCurrency={defaultCurrency}
                     dayRefs={dayRefs}
-                    onNullify={setNullifyEntryId}
+                    onOpenActions={openEntry}
                   />
                 ))}
               </div>
@@ -2814,8 +3057,8 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
                                 </span>
                                 <button
                                   onClick={() => {
-                                    const first = entries.find((en) => monthKeyOf(new Date(en.id)) === m.key);
-                                    if (first) setScrollToDay(new Date(first.id).toDateString());
+                                    const first = entries.find((en) => monthKeyOf(new Date(entryTime(en))) === m.key);
+                                    if (first) setScrollToDay(new Date(entryTime(first)).toDateString());
                                     setScreen(4);
                                   }}
                                   className="text-xs text-left underline underline-offset-2"
@@ -3010,16 +3253,31 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
         )}
 
         <ConfirmModal
+          open={!!deleteTarget}
+          title={`Delete '${deleteTarget ? deleteTarget.name : ''}'?`}
+          message="It will be removed from the ledger. This cannot be undone."
+          confirmLabel="Yes, delete"
+          confirmDanger
+          onCancel={() => setDeleteEntryId(null)}
+          onConfirm={deleteEntry}
+        />
+
+        <EditEntryModal entry={editTarget} defaultCurrency={defaultCurrency} onCancel={() => setEditEntryId(null)} onSave={saveEntryEdit} />
+
+        <ConfirmModal
           open={!!nullifyTarget}
-          title={nullifyTarget && nullifyTarget.nullified ? `Restore '${nullifyTarget.name}'?` : `Nullify '${nullifyTarget ? nullifyTarget.name : ''}'?`}
-          message={
-            nullifyTarget && nullifyTarget.nullified
-              ? 'It will be counted in totals again.'
-              : 'It will stay in the ledger list, but will not be counted in totals. You can restore it any time.'
-          }
-          confirmLabel={nullifyTarget && nullifyTarget.nullified ? 'Restore' : 'Nullify'}
-          onCancel={() => setNullifyEntryId(null)}
-          onConfirm={toggleNullifyEntry}
+          title={`Restore '${nullifyTarget ? nullifyTarget.name : ''}'?`}
+          message="It will be counted in totals again."
+          confirmLabel="Restore"
+          cancelLabel="Delete instead"
+          cancelDanger
+          onCancel={() => {
+            // The left button is Delete, confirmed in its own box.
+            setDeleteEntryId(nullifyEntryId);
+            setNullifyEntryId(null);
+          }}
+          onDismiss={() => setNullifyEntryId(null)}
+          onConfirm={restoreEntry}
         />
 
         <ConfirmModal
