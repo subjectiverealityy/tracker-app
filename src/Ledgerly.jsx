@@ -2382,8 +2382,8 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
               }
               right={
                 <button
-                  onClick={() => setShowCancelConfirm(true)}
-                  aria-label="Cancel entry"
+                  onClick={confirmCancelEntry}
+                  aria-label="Go to the ledger"
                   className="w-8 h-8 flex items-center justify-center rounded-full"
                   style={{ background: 'rgba(245,243,238,0.06)' }}
                 >
