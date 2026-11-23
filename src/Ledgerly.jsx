@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
-import { Search, Check, Delete, Plus, Minus, ChevronLeft, ChevronRight, Calendar, Ban, ArrowLeftRight, Settings, Pencil, Trash2, X, Download, AlertTriangle, LogOut, RotateCcw, Rocket, Copy, CalendarDays, CalendarRange, CalendarSearch, ArrowUp } from 'lucide-react';
+import { Search, Check, Delete, Plus, Minus, ChevronLeft, ChevronRight, Calendar, NotebookText, ArrowLeftRight, Settings, Pencil, Trash2, X, Download, AlertTriangle, LogOut, RotateCcw, Rocket, Copy, CalendarDays, CalendarRange, CalendarSearch, ArrowUp } from 'lucide-react';
 
 // Where feedback emails are sent. Set this to your real address.
 const FEEDBACK_EMAIL = 'oge.o.onuora@gmail.com';
@@ -663,7 +663,7 @@ function LoggerSwitcher({ open, loggers, activeLoggerId, onSelect, onCreate, new
   );
 }
 
-function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', onCancel, onConfirm }) {
+function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onCancel, onConfirm }) {
   if (!open) return null;
   return (
     <div
@@ -688,7 +688,7 @@ function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', onCancel
             className="flex-1 py-2.5 rounded-xl text-sm font-medium"
             style={{ background: 'rgba(245,243,238,0.06)', color: '#F5F3EE', fontFamily: 'Manrope' }}
           >
-            Cancel
+            {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
@@ -2387,7 +2387,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
                   className="w-8 h-8 flex items-center justify-center rounded-full"
                   style={{ background: 'rgba(245,243,238,0.06)' }}
                 >
-                  <Ban size={16} color="#F5F3EE" />
+                  <NotebookText size={16} color="#F5F3EE" />
                 </button>
               }
             />
@@ -2478,7 +2478,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
                   className="w-8 h-8 flex items-center justify-center rounded-full"
                   style={{ background: 'rgba(245,243,238,0.06)' }}
                 >
-                  <Ban size={16} color="#F5F3EE" />
+                  <NotebookText size={16} color="#F5F3EE" />
                 </button>
               }
             />
@@ -2537,7 +2537,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
                   className="w-8 h-8 flex items-center justify-center rounded-full"
                   style={{ background: 'rgba(245,243,238,0.06)' }}
                 >
-                  <Ban size={16} color="#F5F3EE" />
+                  <NotebookText size={16} color="#F5F3EE" />
                 </button>
               }
             />
@@ -2675,7 +2675,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
                 className="flex-1 py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2"
                 style={{ background: '#01A99D', color: '#0F1210', fontFamily: 'Manrope' }}
               >
-                <Plus size={16} strokeWidth={3} /> New Entry
+                <ChevronLeft size={16} strokeWidth={3} /> New Entry
               </button>
               <button
                 onClick={() => setScreen(5)}
@@ -3035,7 +3035,8 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
           open={showCancelConfirm}
           title="Skip to the ledger?"
           message="Your current entry will be cancelled."
-          confirmLabel="Cancel entry"
+          confirmLabel="Yes"
+          cancelLabel="Continue entry"
           onCancel={() => setShowCancelConfirm(false)}
           onConfirm={confirmCancelEntry}
         />
