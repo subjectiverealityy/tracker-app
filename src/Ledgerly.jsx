@@ -3035,7 +3035,7 @@ function LedgerApp({ demo = false, onOpenDemo, onExitDemo, storage: accountStora
           open={showCancelConfirm}
           title="Skip to the ledger?"
           message="Your current entry will be cancelled."
-          confirmLabel="Yes"
+          confirmLabel="Yes, skip"
           cancelLabel="Continue entry"
           onCancel={() => setShowCancelConfirm(false)}
           onConfirm={confirmCancelEntry}
